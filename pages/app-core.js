@@ -19,34 +19,34 @@ window.LytaCore = (() => {
     ];
     const THEME_PRESETS = {
         atelier: {
-            background: "#f2ede3",
-            sidebar: "#faf5ec",
-            topbar: "#fffaf0",
-            conversation: "#fffdf8",
-            composer: "#fff8ef",
-            assistantBubble: "#fff4e8",
-            userBubble: "#1f6b72",
-            accent: "#c35d3f"
+            background: "#f7f7f8",
+            sidebar: "#f7f7f8",
+            topbar: "#ffffff",
+            conversation: "#ffffff",
+            composer: "#ffffff",
+            assistantBubble: "#ffffff",
+            userBubble: "#111827",
+            accent: "#2563eb"
         },
         harbor: {
-            background: "#e7efe9",
-            sidebar: "#eff6f1",
-            topbar: "#f7fbf8",
-            conversation: "#fcfffd",
-            composer: "#f5fbf8",
+            background: "#f6f7f7",
+            sidebar: "#ffffff",
+            topbar: "#ffffff",
+            conversation: "#ffffff",
+            composer: "#ffffff",
             assistantBubble: "#ffffff",
-            userBubble: "#235b66",
-            accent: "#5a7d59"
+            userBubble: "#111827",
+            accent: "#0f766e"
         },
         linen: {
-            background: "#f3f0ec",
-            sidebar: "#fbfaf7",
-            topbar: "#fffdfa",
-            conversation: "#fdfbf8",
-            composer: "#fffdf9",
-            assistantBubble: "#fff8f2",
-            userBubble: "#8a4f3d",
-            accent: "#9c6d2d"
+            background: "#f8f8f7",
+            sidebar: "#ffffff",
+            topbar: "#ffffff",
+            conversation: "#ffffff",
+            composer: "#ffffff",
+            assistantBubble: "#ffffff",
+            userBubble: "#111827",
+            accent: "#4f46e5"
         }
     };
     const DEFAULT_PREFERENCES = {

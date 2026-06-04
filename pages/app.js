@@ -62,11 +62,19 @@ const dom = {
   authStatus: document.getElementById("authStatus"),
   authTabs: Array.from(document.querySelectorAll("[data-auth-mode]")),
   workspaceBadge: document.getElementById("workspaceBadge"),
+  workspaceName: document.getElementById("workspaceName"),
+  workspaceStorageMeta: document.getElementById("workspaceStorageMeta"),
+  workspaceSummary: document.getElementById("workspaceSummary"),
+  sidebarAddFile: document.getElementById("sidebarAddFile"),
+  sidebarLibrary: document.getElementById("sidebarLibrary"),
   sessionCount: document.getElementById("sessionCount"),
   sessions: document.getElementById("sessions"),
   newChat: document.getElementById("newChat"),
   chatTitle: document.getElementById("chatTitle"),
   topbarSubtitle: document.getElementById("topbarSubtitle"),
+  workspaceModeLabel: document.getElementById("workspaceModeLabel"),
+  topbarLibraryCount: document.getElementById("topbarLibraryCount"),
+  topbarModeLabel: document.getElementById("topbarModeLabel"),
   boardToggle: document.getElementById("boardToggle"),
   focusModeToggle: document.getElementById("focusModeToggle"),
   resetChat: document.getElementById("resetChat"),
@@ -76,6 +84,8 @@ const dom = {
   profileButtonWorkspace: document.getElementById("profileButtonWorkspace"),
   chat: document.getElementById("chat"),
   emptyState: document.getElementById("emptyState"),
+  emptyUploadButton: document.getElementById("emptyUploadButton"),
+  emptyActivity: document.getElementById("emptyActivity"),
   typing: document.getElementById("typing"),
   conversationSurface: document.getElementById("conversationSurface"),
   composer: document.getElementById("composer"),
@@ -85,6 +95,7 @@ const dom = {
   attachmentTray: document.getElementById("attachmentTray"),
   input: document.getElementById("message"),
   sendButton: document.getElementById("sendButton"),
+  attachmentSummary: document.getElementById("attachmentSummary"),
   composerStatus: document.getElementById("composerStatus"),
   modeButtons: Array.from(document.querySelectorAll("[data-chat-mode]")),
   boardTitle: document.getElementById("boardTitle"),
@@ -153,7 +164,7 @@ boot()
 async function boot() {
   try {
     await bootstrapWorkspace()
-    dom.input.focus()
+    focusComposerIfWide()
   } catch (error) {
     setComposerStatus(
       getErrorMessage(error, "Unable to connect to the workspace."),
@@ -243,6 +254,16 @@ function bindEvents() {
     dom.filePicker.click()
   })
 
+  dom.sidebarAddFile.addEventListener("click", () => {
+    state.uploadTarget = "library"
+    dom.filePicker.click()
+  })
+
+  dom.emptyUploadButton.addEventListener("click", () => {
+    state.uploadTarget = "composer"
+    dom.filePicker.click()
+  })
+
   dom.filePicker.addEventListener("change", async event => {
     const files = event.target.files
 
@@ -323,6 +344,13 @@ function bindEvents() {
 
     if (followupButton) {
       useFollowup(followupButton.dataset.followup)
+      return
+    }
+
+    const pinButton = event.target.closest("[data-pin-message]")
+
+    if (pinButton) {
+      selectBoardMessage(pinButton.dataset.pinMessage)
       return
     }
 
@@ -481,7 +509,13 @@ async function bootstrapWorkspace() {
 
   await loadCurrentSession()
   setAuthStatus("")
-  dom.input.focus()
+  focusComposerIfWide()
+}
+
+function focusComposerIfWide() {
+  if (window.matchMedia("(min-width: 760px)").matches) {
+    dom.input.focus()
+  }
 }
 
 async function logout() {
@@ -705,7 +739,7 @@ async function sendMessage() {
     })
 
     if (!response.ok) {
-      throw new Error(await response.text() || "Unable to send this message.")
+      throw new Error(await readChatFailureMessage(response))
     }
 
     if (!response.body) {
@@ -765,6 +799,45 @@ async function sendMessage() {
     setSendingState(false)
     scrollConversation()
   }
+}
+
+async function readChatFailureMessage(response) {
+  const fallback =
+    "LYTA server error. Please retry; request failed before streaming started."
+
+  let text = ""
+
+  try {
+    text = await response.text()
+  } catch {
+    return fallback
+  }
+
+  const contentType = response.headers.get("Content-Type") || ""
+
+  if (contentType.includes("application/json")) {
+    try {
+      const parsed = JSON.parse(text)
+      const message = parsed?.error || parsed?.message
+
+      if (typeof message === "string" && message.trim()) {
+        return toSingleLine(message).slice(0, 240)
+      }
+    } catch {}
+  }
+
+  if (!text.trim() || looksLikeHtmlError(text)) {
+    return fallback
+  }
+
+  return toSingleLine(text).slice(0, 240) || fallback
+}
+
+function looksLikeHtmlError(text) {
+  return (
+    /^\s*</.test(text) ||
+    /Cloudflare|cf-error|Error 1101|Worker threw exception|Please enable cookies/i.test(text)
+  )
 }
 
 function handleAssistantPayload(parsed, assistantMessage, assistantNode) {
@@ -870,7 +943,14 @@ function createMessageElement(message) {
 
   const stateText = document.createElement("span")
   const fileCount = message.attachments?.length || 0
-  stateText.textContent = `${getChatModeLabel(message.mode)} · ${fileCount ? `${fileCount} file${fileCount === 1 ? "" : "s"}` : "Message"}`
+  const sourceCount = message.citations?.length || 0
+  stateText.textContent = [
+    message.role === "assistant" ? getChatModeLabel(message.mode) : "",
+    fileCount ? `${fileCount} file${fileCount === 1 ? "" : "s"}` : "",
+    message.role === "assistant" && sourceCount
+      ? `${sourceCount} source${sourceCount === 1 ? "" : "s"}`
+      : ""
+  ].filter(Boolean).join(" · ")
 
   meta.append(label, stateText)
 
@@ -944,20 +1024,20 @@ function renderMessageContent(target, message) {
 function renderMessageFooter(target, message) {
   target.innerHTML = ""
 
-  const tags = document.createElement("div")
-  tags.className = "message-tags"
+  if (message.role === "assistant" && message.content.trim()) {
+    const actions = document.createElement("div")
+    actions.className = "message-actions"
 
-  if (message.role === "assistant") {
-    tags.appendChild(createTag(`${message.citations.length} source${message.citations.length === 1 ? "" : "s"}`))
-    tags.appendChild(createTag(`${message.followups.length} follow-up${message.followups.length === 1 ? "" : "s"}`))
-  }
+    const pin = document.createElement("button")
+    pin.type = "button"
+    pin.className = "message-action"
+    pin.dataset.pinMessage = message.id
+    pin.textContent =
+      message.id === state.selectedMessageId ? "Pinned" : "Pin to board"
+    pin.setAttribute("aria-label", "Pin response to output board")
+    actions.appendChild(pin)
 
-  if (message.attachments.length) {
-    tags.appendChild(createTag(`${message.attachments.length} attachment${message.attachments.length === 1 ? "" : "s"}`))
-  }
-
-  if (tags.childElementCount) {
-    target.appendChild(tags)
+    target.appendChild(actions)
   }
 
   if (message.citations.length) {
@@ -969,10 +1049,10 @@ function renderMessageFooter(target, message) {
       card.className = "source-card"
 
       const title = document.createElement("strong")
-      title.textContent = citation.label
+      title.textContent = citation.fileName
 
       const meta = document.createElement("p")
-      meta.textContent = `${citation.fileName} · ${citation.snippet}`
+      meta.textContent = citation.snippet
 
       card.append(title, meta)
       list.appendChild(card)
@@ -982,6 +1062,11 @@ function renderMessageFooter(target, message) {
   }
 
   if (message.followups.length) {
+    const label = document.createElement("p")
+    label.className = "followup-label"
+    label.textContent = "Next"
+    target.appendChild(label)
+
     const followupList = document.createElement("div")
     followupList.className = "followup-list"
 
@@ -996,13 +1081,6 @@ function renderMessageFooter(target, message) {
 
     target.appendChild(followupList)
   }
-}
-
-function createTag(text) {
-  const tag = document.createElement("span")
-  tag.className = "message-tag"
-  tag.textContent = text
-  return tag
 }
 
 function createAttachmentCard(attachment) {
@@ -1029,12 +1107,11 @@ function createAttachmentCard(attachment) {
 
   const meta = document.createElement("div")
   meta.className = "attachment-meta"
-
-  meta.append(
-    createPill(attachment.kind === "image" ? "Image" : "Document"),
-    createPill(formatMimeLabel(attachment.mimeType)),
-    createPill(formatBytes(attachment.size))
-  )
+  meta.textContent = [
+    attachment.kind === "image" ? "Image" : "Document",
+    formatMimeLabel(attachment.mimeType),
+    formatBytes(attachment.size)
+  ].join(" · ")
 
   copy.append(title, meta)
 
@@ -1060,7 +1137,7 @@ function renderSessions() {
   if (!state.sessions.length) {
     const empty = document.createElement("div")
     empty.className = "session"
-    empty.textContent = "No chats yet."
+    empty.textContent = "No saved chats yet."
     dom.sessions.appendChild(empty)
   }
 
@@ -1093,20 +1170,23 @@ function renderSessions() {
     dom.sessions.appendChild(row)
   })
 
-  dom.sessionCount.textContent = `${state.sessions.length} thread${state.sessions.length === 1 ? "" : "s"}`
+  dom.sessionCount.textContent = `${state.sessions.length} chat${state.sessions.length === 1 ? "" : "s"}`
+  renderEmptyActivity()
 }
 
 function renderProfile() {
   const guest = isGuestUser()
+  const workspaceLabel = guest ? "Temporary workspace" : "Saved workspace"
 
   dom.profileAvatar.textContent = getInitials(state.profile.name)
   dom.profileButtonName.textContent = state.profile.name
   dom.profileButtonWorkspace.textContent = guest
     ? "Temporary session"
     : state.profile.workspace
-  dom.workspaceBadge.textContent = guest
-    ? "Guest Session"
-    : state.profile.workspace
+  dom.workspaceBadge.textContent = workspaceLabel
+  dom.workspaceName.textContent = state.profile.workspace
+  dom.workspaceStorageMeta.textContent = guest ? "Guest" : "Account"
+  dom.workspaceModeLabel.textContent = workspaceLabel
   dom.profileNameInput.value = state.profile.name
   dom.profileWorkspaceInput.value = state.profile.workspace
   dom.profileEmailText.textContent = guest
@@ -1123,21 +1203,27 @@ function renderProfile() {
   dom.profileStatus.textContent = guest
     ? "Guest settings last for the current session only."
     : "Profile updates apply across refreshes."
+
+  updateWorkspaceSummary()
 }
 
 function renderLibrary() {
   dom.libraryList.innerHTML = ""
-  dom.libraryStats.textContent = `${state.library.length} saved file${state.library.length === 1 ? "" : "s"}`
+  dom.libraryStats.textContent = `${state.library.length} file${state.library.length === 1 ? "" : "s"}`
   dom.libraryHint.textContent = isGuestUser()
-    ? "Files can be reused in this guest session. Sign in to keep them permanently."
-    : "Upload files once and reuse them across chats."
+    ? "Guest files stay with this session."
+    : "Files are available across chats."
+
+  renderSidebarLibrary()
+  renderEmptyActivity()
+  updateWorkspaceSummary()
 
   if (!state.library.length) {
     const empty = document.createElement("div")
     empty.className = "library-card"
     empty.textContent = isGuestUser()
-      ? "No files yet. Upload PDFs, DOCX, text files, or images to use them during this guest session."
-      : "No files yet. Upload PDFs, DOCX, text files, or images to build your reusable context library."
+      ? "No files yet."
+      : "No files yet."
     dom.libraryList.appendChild(empty)
     return
   }
@@ -1164,11 +1250,7 @@ function renderLibrary() {
 
     copy.append(title, meta)
 
-    const badge = document.createElement("span")
-    badge.className = "library-badge"
-    badge.textContent = file.extractedText ? "Searchable" : "Stored"
-
-    header.append(copy, badge)
+    header.appendChild(copy)
 
     const actions = document.createElement("div")
     actions.className = "library-card-actions"
@@ -1196,8 +1278,110 @@ function renderLibrary() {
   })
 }
 
+function renderSidebarLibrary() {
+  dom.sidebarLibrary.innerHTML = ""
+
+  if (!state.library.length) {
+    const empty = document.createElement("div")
+    empty.className = "sidebar-empty"
+    empty.textContent = "No files yet."
+    dom.sidebarLibrary.appendChild(empty)
+    return
+  }
+
+  state.library.slice(0, 3).forEach(file => {
+    const row = document.createElement("button")
+    row.type = "button"
+    row.className = "sidebar-file"
+    row.title = `Attach ${file.name}`
+
+    const copy = document.createElement("span")
+    copy.className = "sidebar-file-copy"
+
+    const title = document.createElement("strong")
+    title.textContent = file.name
+
+    const meta = document.createElement("span")
+    meta.textContent = [
+      file.kind === "image" ? "Image" : "Document",
+      formatRelativeTime(file.updatedAt)
+    ].join(" · ")
+
+    copy.append(title, meta)
+
+    row.appendChild(copy)
+    row.addEventListener("click", () => {
+      addLibraryFileToDraft(file.libraryFileId)
+    })
+
+    dom.sidebarLibrary.appendChild(row)
+  })
+}
+
+function renderEmptyActivity() {
+  dom.emptyActivity.innerHTML = ""
+
+  const activity = [
+    ...state.library.slice(0, 2).map(file => ({
+      label: file.extractedText ? "Searchable file" : "Stored file",
+      title: file.name,
+      meta: formatRelativeTime(file.updatedAt)
+    })),
+    ...state.sessions.slice(0, 2).map(session => ({
+      label: "Chat",
+      title: session.title,
+      meta: formatRelativeTime(session.updatedAt)
+    }))
+  ].slice(0, 4)
+
+  if (!activity.length) {
+    const empty = document.createElement("div")
+    empty.className = "activity-empty"
+    empty.textContent = `${state.library.length} files · ${state.sessions.length} chats`
+    dom.emptyActivity.appendChild(empty)
+    return
+  }
+
+  activity.forEach(item => {
+    const row = document.createElement("div")
+    row.className = "activity-row"
+
+    const copy = document.createElement("div")
+    copy.className = "activity-copy"
+
+    const label = document.createElement("span")
+    label.textContent = item.label
+
+    const title = document.createElement("strong")
+    title.textContent = item.title
+
+    copy.append(label, title)
+
+    const meta = document.createElement("span")
+    meta.className = "activity-time"
+    meta.textContent = item.meta
+
+    row.append(copy, meta)
+    dom.emptyActivity.appendChild(row)
+  })
+}
+
+function updateWorkspaceSummary() {
+  const fileCount = state.library.length
+  const chatCount = state.sessions.length
+
+  dom.workspaceSummary.textContent =
+    `${fileCount} file${fileCount === 1 ? "" : "s"} · ${chatCount} chat${chatCount === 1 ? "" : "s"}`
+  dom.topbarLibraryCount.textContent =
+    `${fileCount} file${fileCount === 1 ? "" : "s"}`
+}
+
 function renderPendingAttachments() {
   dom.attachmentTray.innerHTML = ""
+
+  dom.attachmentSummary.textContent = state.pendingAttachments.length
+    ? `${state.pendingAttachments.length} file${state.pendingAttachments.length === 1 ? "" : "s"} attached`
+    : "No files attached"
 
   state.pendingAttachments.forEach(attachment => {
     const card = document.createElement("div")
@@ -1215,11 +1399,6 @@ function renderPendingAttachments() {
       image.src = attachment.dataUrl
       image.alt = attachment.name
       main.appendChild(image)
-    } else {
-      const icon = document.createElement("div")
-      icon.className = "attachment-icon"
-      icon.textContent = "DOC"
-      main.appendChild(icon)
     }
 
     const copy = document.createElement("div")
@@ -1231,11 +1410,11 @@ function renderPendingAttachments() {
 
     const meta = document.createElement("div")
     meta.className = "attachment-meta"
-    meta.append(
-      createPill(attachment.kind === "image" ? "Image" : "Document"),
-      createPill(formatMimeLabel(attachment.mimeType)),
-      createPill(formatBytes(attachment.size))
-    )
+    meta.textContent = [
+      attachment.kind === "image" ? "Image" : "Document",
+      formatMimeLabel(attachment.mimeType),
+      formatBytes(attachment.size)
+    ].join(" · ")
 
     copy.append(title, meta)
 
@@ -1267,7 +1446,7 @@ function renderBoard() {
   const message = getSelectedAssistantMessage()
 
   if (!message) {
-    dom.boardTitle.textContent = "Select a response"
+    dom.boardTitle.textContent = "Board"
     dom.boardState.hidden = false
     dom.boardBody.hidden = true
     dom.boardSources.hidden = true
@@ -1293,6 +1472,11 @@ function renderBoardSources(citations) {
   }
 
   dom.boardSources.hidden = false
+
+  const heading = document.createElement("div")
+  heading.className = "board-sources-heading"
+  heading.textContent = "Sources"
+  dom.boardSources.appendChild(heading)
 
   citations.forEach(citation => {
     const card = document.createElement("div")
@@ -1582,10 +1766,13 @@ function updateEmptyState() {
 function updateTopbar() {
   dom.chatTitle.textContent = getCurrentSessionTitle()
   const scope = isGuestUser()
-    ? "Guest session"
-    : "Account workspace"
+    ? "Temporary workspace"
+    : "Saved workspace"
 
-  dom.topbarSubtitle.textContent = `${scope} · ${state.library.length} library file${state.library.length === 1 ? "" : "s"} · ${state.sessions.length} chat${state.sessions.length === 1 ? "" : "s"}`
+  dom.workspaceModeLabel.textContent = scope
+  dom.topbarSubtitle.textContent =
+    `${state.library.length} file${state.library.length === 1 ? "" : "s"} · ${state.sessions.length} chat${state.sessions.length === 1 ? "" : "s"}`
+  updateWorkspaceSummary()
 }
 
 function applyThemeConfig(theme, persist = false) {
@@ -1615,6 +1802,10 @@ function applyUiPreferences(ui, persist = false) {
   document.body.classList.toggle("board-closed", !state.preferences.ui.boardOpen)
   dom.focusModeToggle.checked = state.preferences.ui.sidebarHidden
   dom.boardToggle.textContent = state.preferences.ui.boardOpen ? "Board" : "Show Board"
+  dom.boardToggle.setAttribute(
+    "aria-label",
+    state.preferences.ui.boardOpen ? "Hide output board" : "Show output board"
+  )
   syncModeButtons()
 
   if (persist) {
@@ -1640,6 +1831,8 @@ async function persistPreferences() {
 }
 
 function syncModeButtons() {
+  dom.topbarModeLabel.textContent = getChatModeLabel(state.preferences.ui.chatMode)
+
   dom.modeButtons.forEach(button => {
     button.classList.toggle(
       "is-active",
@@ -1686,9 +1879,7 @@ function isGuestUser() {
 }
 
 function getDefaultStatus() {
-  return isGuestUser()
-    ? "Guest uploads stay available for this session only."
-    : "Uploads sync into your account library automatically."
+  return "Ready."
 }
 
 function setSendingState(active) {
@@ -1728,13 +1919,6 @@ function autoresizeTextarea() {
   dom.input.style.height = `${Math.min(dom.input.scrollHeight, 220)}px`
 }
 
-function createPill(text) {
-  const pill = document.createElement("span")
-  pill.className = "attachment-pill"
-  pill.textContent = text
-  return pill
-}
-
 function getCurrentSessionTitle() {
   return state.sessions.find(session => session.id === state.sessionId)?.title || "New Chat"
 }
@@ -1767,10 +1951,14 @@ function getSelectedAssistantMessage() {
 
 function syncSelectedMessageStyles() {
   dom.chat.querySelectorAll(".message.assistant").forEach(node => {
-    node.classList.toggle(
-      "is-selected",
-      node.dataset.messageId === state.selectedMessageId
-    )
+    const selected = node.dataset.messageId === state.selectedMessageId
+    node.classList.toggle("is-selected", selected)
+
+    const pin = node.querySelector("[data-pin-message]")
+
+    if (pin) {
+      pin.textContent = selected ? "Pinned" : "Pin to board"
+    }
   })
 }
 

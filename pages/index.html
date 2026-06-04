@@ -4,9 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lyta</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js" defer></script>
@@ -21,16 +18,33 @@
 <div id="appShell">
   <aside id="sidebar">
     <div class="sidebar-header">
-      <div>
+      <div class="brand-block">
         <div class="brand-mark">LYTA</div>
-        <p class="meta-label" id="workspaceBadge">Private Workspace</p>
+        <p class="meta-label">AI workspace</p>
       </div>
-      <button id="newChat" class="primary-button" type="button">New Chat</button>
+      <button id="newChat" class="primary-button" type="button" aria-label="Create new chat">New Chat</button>
     </div>
+
+    <div class="workspace-card">
+      <div class="workspace-card-top">
+        <span id="workspaceBadge" class="status-pill">Temporary workspace</span>
+        <span id="workspaceStorageMeta">Guest</span>
+      </div>
+      <strong id="workspaceName">Private Workspace</strong>
+      <p id="workspaceSummary">0 files · 0 chats</p>
+    </div>
+
+    <section class="sidebar-section" aria-labelledby="sidebarLibraryTitle">
+      <div class="sidebar-heading">
+        <span class="sidebar-title" id="sidebarLibraryTitle">Library</span>
+        <button id="sidebarAddFile" class="icon-button" type="button" title="Add files to library" aria-label="Add files to library">+</button>
+      </div>
+      <div id="sidebarLibrary" class="sidebar-library"></div>
+    </section>
 
     <div class="sidebar-heading">
       <span class="sidebar-title">Chats</span>
-      <span class="sidebar-note" id="sessionCount">0 threads</span>
+      <span class="sidebar-note" id="sessionCount">0 chats</span>
     </div>
 
     <div id="sessions"></div>
@@ -39,22 +53,26 @@
   <main id="workspace">
     <header id="topbar">
       <div class="topbar-copy">
-        <p class="meta-label">Workspace</p>
+        <div class="topbar-meta">
+          <span id="workspaceModeLabel">Temporary workspace</span>
+          <span id="topbarLibraryCount">0 files</span>
+          <span id="topbarModeLabel">Instant</span>
+        </div>
         <h1 id="chatTitle">New Chat</h1>
-        <p id="topbarSubtitle">Private to your account, synced across refreshes.</p>
+        <p id="topbarSubtitle">0 files · 0 chats</p>
       </div>
 
       <div class="topbar-actions">
-        <label class="switch-row" for="focusModeToggle">
+        <label class="switch-row" for="focusModeToggle" title="Hide or show the chat list">
           <span>Focus</span>
           <input id="focusModeToggle" type="checkbox">
           <span class="switch-control" aria-hidden="true"></span>
         </label>
 
-        <button id="boardToggle" class="secondary-button" type="button">Board</button>
-        <button id="resetChat" class="secondary-button" type="button">Clear</button>
+        <button id="boardToggle" class="secondary-button" type="button" title="Show or hide output board">Board</button>
+        <button id="resetChat" class="secondary-button" type="button" title="Clear current chat">Clear</button>
 
-        <button id="profileButton" class="profile-button" type="button">
+        <button id="profileButton" class="profile-button" type="button" title="Open workspace settings">
           <span class="profile-avatar" id="profileAvatar">LY</span>
           <span class="profile-copy">
             <strong id="profileButtonName">Profile</strong>
@@ -68,17 +86,43 @@
       <section id="chatPanel">
         <section id="conversationSurface">
           <div id="emptyState">
-            <p class="meta-label">Minimal by design</p>
-            <h2>Ask something substantial.</h2>
-            <p>
-              Bring in images or documents, switch response modes, and let Lyta pull from your personal library with source-aware answers.
-            </p>
-
-            <div class="suggestion-row">
-              <button class="suggestion-chip" type="button" data-prompt="Summarize the core argument from these notes in plain language.">Summarize notes</button>
-              <button class="suggestion-chip" type="button" data-prompt="Review this system design and point out architectural risks.">Review architecture</button>
-              <button class="suggestion-chip" type="button" data-prompt="Turn this material into a polished project explanation for recruiters.">Portfolio rewrite</button>
+            <div class="starter-panel">
+              <h2>Start with a file or a technical question.</h2>
+              <p>LYTA keeps reusable files, cited answers, and board-ready outputs in one workspace.</p>
             </div>
+
+            <div class="starter-list">
+              <section class="starter-row">
+                <div>
+                  <h3>Add a document</h3>
+                  <p>Attach PDFs, DOCX, text files, data files, or images.</p>
+                </div>
+                <button id="emptyUploadButton" class="secondary-button" type="button">Add document</button>
+              </section>
+
+              <section class="starter-row">
+                <div>
+                  <h3>Ask about your files</h3>
+                  <p>Use citations when uploaded context is available.</p>
+                </div>
+                <div class="suggestion-row">
+                  <button class="suggestion-chip" type="button" data-prompt="Find risks in this architecture and cite the relevant sources.">Find risks</button>
+                  <button class="suggestion-chip" type="button" data-prompt="Summarize the uploaded notes and list the important decisions.">Summarize notes</button>
+                </div>
+              </section>
+
+              <section class="starter-row">
+                <div>
+                  <h3>Generate an output</h3>
+                  <p>Pin a strong response to the board for copy or download.</p>
+                </div>
+                <div class="suggestion-row">
+                  <button class="suggestion-chip" type="button" data-prompt="Create a recruiter-ready project summary from this material.">Project summary</button>
+                  <button class="suggestion-chip" type="button" data-prompt="Draft a technical design review with risks, tradeoffs, and recommendations.">Design review</button>
+                </div>
+              </section>
+            </div>
+            <div id="emptyActivity" class="activity-list" hidden></div>
           </div>
 
           <div id="chat"></div>
@@ -97,21 +141,22 @@
             <div id="attachmentTray"></div>
 
             <div class="composer-row">
-              <button id="attachBtn" class="secondary-button" type="button">Upload</button>
-              <button id="libraryBtn" class="secondary-button" type="button">Library</button>
+              <button id="attachBtn" class="secondary-button" type="button" title="Upload files">Upload</button>
+              <button id="libraryBtn" class="secondary-button" type="button" title="Open reusable library">Library</button>
               <label class="composer-input" for="message">
                 <textarea id="message" rows="1" placeholder="Ask Lyta to think through something real..."></textarea>
               </label>
-              <button id="sendButton" class="primary-button" type="submit">Send</button>
+              <button id="sendButton" class="primary-button" type="submit" aria-label="Send message">Send</button>
             </div>
 
             <div class="composer-footer">
+              <span id="attachmentSummary">No files attached</span>
               <div class="mode-selector" aria-label="Response mode">
-                <button class="mode-button" type="button" data-chat-mode="instant">Instant</button>
-                <button class="mode-button" type="button" data-chat-mode="deep">Deep</button>
-                <button class="mode-button" type="button" data-chat-mode="creative">Creative</button>
+                <button class="mode-button" type="button" data-chat-mode="instant" title="Quick answer">Instant</button>
+                <button class="mode-button" type="button" data-chat-mode="deep" title="Technical review">Deep</button>
+                <button class="mode-button" type="button" data-chat-mode="creative" title="Rewrite or ideate">Creative</button>
               </div>
-              <span id="composerStatus">Uploads sync into your account library automatically.</span>
+              <span id="composerStatus">Ready.</span>
             </div>
           </div>
         </form>
@@ -120,7 +165,7 @@
       <aside id="artifactPanel">
         <div class="panel-header">
           <div>
-            <p class="meta-label">Output Board</p>
+            <p class="meta-label">Board</p>
             <h2 id="boardTitle">Select a response</h2>
           </div>
 
@@ -131,7 +176,10 @@
         </div>
 
         <div id="boardState" class="panel-empty">
-          Click an assistant response to pin it here for cleaner reading, copying, and showcasing.
+          <div class="board-preview">
+            <h3>No output pinned yet.</h3>
+            <p>Pinned assistant responses appear here as a clean document with sources and export actions.</p>
+          </div>
         </div>
 
         <div id="boardBody" hidden></div>
@@ -146,7 +194,7 @@
 <aside id="settingsPanel" aria-hidden="true">
   <div class="settings-header">
     <div>
-      <p class="meta-label">Profile, Theme, Library</p>
+      <p class="meta-label">Settings</p>
       <h2>Workspace Settings</h2>
     </div>
     <button id="closeSettings" class="secondary-button" type="button">Close</button>
@@ -185,7 +233,7 @@
     <section class="settings-section">
       <div class="section-header">
         <h3>Theme</h3>
-        <p>Pick colors for each surface separately.</p>
+        <p>Keep the workspace neutral; use accent color sparingly.</p>
       </div>
 
       <div class="theme-presets">
