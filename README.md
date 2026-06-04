@@ -1,18 +1,18 @@
 # LYTA
 
-![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)
-![Durable Objects](https://img.shields.io/badge/State-Durable%20Objects-blue)
-![AI](https://img.shields.io/badge/AI-Workers%20AI-purple)
-![Architecture](https://img.shields.io/badge/System-Edge%20Native-black)
-![Status](https://img.shields.io/badge/Status-Live-success)
+![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-f38020)
+![Durable Objects](https://img.shields.io/badge/State-Durable%20Objects-111827)
+![Workers AI](https://img.shields.io/badge/AI-Workers%20AI-2563eb)
+![Frontend](https://img.shields.io/badge/Frontend-Vanilla%20JS-6b7280)
+![Status](https://img.shields.io/badge/Status-Live-027a48)
 
 <p align="center">
-  <img src="./assets/architecture.png" alt="LYTA Architecture" width="800"/>
+  <img src="./assets/demo.png" alt="LYTA workspace preview" width="900"/>
 </p>
 
 <p align="center">
-  <b>Stateful Edge AI Workspace built on Cloudflare Workers</b><br/>
-  Session-based memory · Streaming responses · Retrieval with citations
+  <b>Edge-native AI workspace for technical work.</b><br/>
+  Persistent workspaces · Reusable file memory · Retrieval with citations · Streaming chat · Output board
 </p>
 
 <p align="center">
@@ -22,208 +22,146 @@
 
 ## Overview
 
-LYTA is a production-oriented AI system focused on system design, not just chat UI.
+LYTA is a portfolio-grade AI workspace built on Cloudflare Workers, Durable Objects, and Workers AI. It is designed to demonstrate more than a prompt box: it models user state, file memory, retrieval, streaming, and output capture as a real product system.
 
-Core capabilities:
+The current product experience is intentionally minimal. The interface focuses on a quiet workspace rail, readable chat, reusable files, cited answers, and a document-style output board.
 
-- instant guest usage with temporary server-backed chats
-- account-backed private workspaces for persistent chats, files, and preferences
-- reusable document memory across conversations
-- citation-aware answers from uploaded files
-- streaming responses with `Instant`, `Deep`, and `Creative` modes
-- smart follow-up prompts and a dedicated output board for polished deliverables
+## What LYTA Does
 
-The project is designed to show how an AI assistant can be built as a real edge product with isolated state, retrieval, streaming, and a product layer that feels intentional instead of cloned.
+- Starts immediately in guest mode with temporary server-backed workspace state.
+- Supports account workspaces for persisted chats, files, profile data, and preferences.
+- Ingests PDFs, DOCX, TXT, Markdown, CSV, JSON, HTML, XML, and images.
+- Stores uploaded documents in a reusable file library instead of treating every upload as a one-off attachment.
+- Retrieves relevant file snippets and returns source citations in chat and on the output board.
+- Streams assistant responses over Server-Sent Events.
+- Provides `Instant`, `Deep`, and `Creative` response modes.
+- Generates short chat titles and follow-up prompts.
+- Lets users pin strong assistant responses to a board for copy or Markdown export.
 
-## Preview
+## Why This Is Technically Interesting
 
-<p align="center">
-  <img src="./assets/demo.gif" alt="LYTA Workspace Preview" width="800"/>
-</p>
+Most AI demos are stateless chat screens. LYTA is structured around explicit ownership boundaries:
 
-## Why This Project Matters
+- **Worker Router** resolves guest/account identity, validates requests, coordinates retrieval, and forwards normalized chat work.
+- **AuthDirectory Durable Object** owns account records, password hashes, auth sessions, and token validation.
+- **Workspace Durable Object** owns profile data, preferences, chat index, file metadata, document chunks, embeddings, and library search.
+- **Conversation Durable Object** owns per-chat memory, ordered writes, summarization, title generation, follow-ups, and streaming persistence.
+- **Workers AI** provides both chat generation and embedding generation.
 
-Most AI demos stop at "send prompt, render response." LYTA goes further:
+The streaming path is hardened for demo reliability. `/chat/stream` establishes a valid SSE response before the model call runs, and model/retrieval failures degrade into clean LYTA errors instead of leaking Cloudflare 1101 HTML into the UI. Chat responses also include `X-Lyta-Request-Id` for log correlation, while logs avoid prompts, file text, emails, tokens, and full user data.
 
-- state is modeled explicitly with Durable Objects
-- guests can try the product immediately without losing clean isolation
-- signed-in users get private account-backed workspaces
-- files become reusable retrieval context instead of one-off attachments
-- citations and follow-up prompts are part of the core product behavior
-- the output board creates a second surface for useful deliverables
+## Demo Walkthrough
 
-This makes LYTA a stronger showcase for AI engineer and software engineer roles because it demonstrates system design, product thinking, and implementation discipline together.
-
-## Live Demo
-
-Production URL:
-
-`https://lyta.parthrohit-dev.workers.dev`
-
-Suggested walkthrough:
-
-1. Open the app as a guest and create a temporary chat.
-2. Upload a PDF or DOCX and ask a question about it.
-3. Reuse the same file from the library in a new thread.
-4. Switch between `Instant`, `Deep`, and `Creative`.
-5. Pin an answer to the output board.
-6. Sign in and confirm private workspace persistence.
-
-## Engineering Challenges
-
-- Maintaining consistent session state across edge environments
-- Designing isolated memory per workspace and per conversation
-- Handling streaming responses without partial state corruption
-- Integrating retrieval without external vector infrastructure
-- Ensuring deterministic behavior under concurrent requests
-
-## Feature Set
-
-### Workspace Modes
-
-- guest workspaces with temporary server-backed storage
-- account workspaces with private persisted chats, files, and preferences
-- a compact auth modal instead of a forced landing page
-
-### Chat Experience
-
-- Server-Sent Event streaming
-- `Instant`, `Deep`, and `Creative` response modes
-- short 2-3 word chat title generation
-- smart follow-up suggestions after each answer
-- typing indicator lifecycle that ends cleanly when streaming finishes
-
-### Files and Retrieval
-
-- image upload support
-- PDF, DOCX, TXT, MD, CSV, JSON, HTML, and XML ingestion
-- reusable personal file library
-- document chunking plus embeddings for retrieval
-- source citations rendered in chat and on the board
-
-### UI and Product Layer
-
-- minimal workspace-first interface
-- profile, theme, and library controls in a dedicated settings drawer
-- per-surface theme customization
-- focus mode to hide the chat list and expand the conversation view
-- output board for cleaner reading, copying, and export
+1. Open the [live demo](https://lyta.parthrohit-dev.workers.dev).
+2. Start as a guest and ask a technical question.
+3. Upload a document and ask LYTA to summarize risks, decisions, or next steps.
+4. Reuse the uploaded file from the library in another chat.
+5. Compare `Instant`, `Deep`, and `Creative` response modes.
+6. Pin a response to the output board and copy or download it.
+7. Sign in to move from temporary guest state to a saved account workspace.
 
 ## Architecture
 
-### Visual Architecture
-
 <p align="center">
-  <img src="./assets/architecture.png" alt="LYTA visual architecture" width="900"/>
+  <img src="./assets/architecture.png" alt="LYTA architecture diagram" width="900"/>
 </p>
-
-### System Diagram
 
 ```mermaid
 flowchart TD
-    A[Browser UI<br/>Chat, Settings, Board, Uploads] --> B[Cloudflare Worker Router]
-    B --> C[AuthDirectory DO<br/>Accounts + Auth Sessions]
-    B --> D[Workspace DO<br/>Profile, Preferences, Chat Index, File Library]
-    B --> E[Conversation DO<br/>Per-Chat Memory, Titles, Summaries]
-    B --> F[Workers AI Chat Model]
-    B --> G[Workers AI Embeddings]
-
-    D --> E
-    G --> D
-    F --> E
+    UI[Browser UI<br/>Chat, Files, Board, Settings] --> Router[Cloudflare Worker Router]
+    Router --> Auth[AuthDirectory DO<br/>Accounts + Sessions]
+    Router --> Workspace[Workspace DO<br/>Profile, Preferences, Chat Index, File Library]
+    Router --> Conversation[Conversation DO<br/>Per-Chat Memory + Streaming]
+    Router --> Embeddings[Workers AI Embeddings]
+    Conversation --> ChatModel[Workers AI Chat Model]
+    Embeddings --> Workspace
+    Workspace --> Router
+    Conversation --> Workspace
 ```
-
-### Request Flow
 
 ```mermaid
 sequenceDiagram
-    participant U as User
+    participant User
     participant UI as Browser UI
-    participant R as Worker Router
-    participant W as Workspace DO
-    participant C as Conversation DO
+    participant Router as Worker Router
+    participant Workspace as Workspace DO
+    participant Chat as Conversation DO
     participant AI as Workers AI
 
-    U->>UI: Send message + optional files
-    UI->>R: POST /chat/stream
-    R->>W: Upsert/search personal library
-    R->>C: Forward normalized request + retrieved context
-    C->>AI: Run chat model
-    AI-->>C: Stream tokens
-    C-->>UI: SSE response chunks
-    C-->>UI: done event + citations + follow-ups
-    C->>W: Update session metadata
+    User->>UI: Send message and optional files
+    UI->>Router: POST /chat/stream
+    Router->>Workspace: Import/search reusable library
+    Router->>Chat: Forward message, context, citations, request id
+    Chat-->>UI: Open SSE response
+    Chat->>AI: Run streaming chat model
+    AI-->>Chat: Token stream
+    Chat-->>UI: SSE chunks, metadata, citations
+    Chat->>Workspace: Touch/rename session
 ```
 
 ### Core Building Blocks
 
 | Layer | Responsibility |
 | --- | --- |
-| `pages/app.js` | Auth modal, chat UX, uploads, streaming UI, settings drawer, output board |
-| `src/router.ts` | Principal resolution, auth orchestration, guest/account routing, retrieval orchestration |
-| `AuthDirectory` | Account records, hashed password handling, session validation |
-| `Workspace` | Profile, theme prefs, chat list, reusable library, library search |
-| `Conversation` | Per-chat memory, title generation, summarization, follow-ups, stream persistence |
-| `Workers AI` | Response generation and embedding creation |
+| `pages/` | Vanilla HTML/CSS/JS workspace UI, uploads, auth modal, streaming chat, board |
+| `src/router.ts` | Principal resolution, route validation, guest/account routing, library retrieval orchestration |
+| `AuthDirectory` | Account records, password hashing, session tokens |
+| `Workspace` | Profile, preferences, chat index, reusable file library, vector search |
+| `Conversation` | Per-chat state, summaries, titles, follow-ups, SSE streaming, persistence |
+| `services/ai.ts` / `services/embeddings.ts` | Workers AI model and embedding calls with normalized failures |
 
-More implementation detail lives in [ARCHITECTURE.md](./ARCHITECTURE.md).
+More detail lives in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-## Technical Choices
+## Feature Inventory
 
-### Durable Objects For Stateful Boundaries
+### Implemented
 
-LYTA uses Durable Objects where strong consistency matters:
+- Guest and account workspace modes
+- Email/password account registration and login
+- Persistent chat sessions for account workspaces
+- Temporary guest sessions with isolated server-backed state
+- File upload and browser-side document text extraction
+- Reusable workspace file library
+- Embedding-backed file retrieval with citations
+- SSE streaming chat responses
+- Response modes: `Instant`, `Deep`, `Creative`
+- Chat title generation, summarization, and follow-up prompts
+- Minimal output board with copy and Markdown download
+- Request-id based chat error correlation
+- Graceful degradation for AI/retrieval failures
 
-- `AuthDirectory` for account auth
-- `Workspace` for per-user or per-guest workspace state
-- `Conversation` for per-chat memory and ordered writes
+### Known Tradeoffs
 
-This keeps account state, workspace state, and conversation state separate.
-
-### Browser Parsing Plus Server Retrieval
-
-The browser extracts readable text from supported documents before upload. The Worker then:
-
-- chunks text
-- creates embeddings
-- stores reusable file metadata in the workspace
-- retrieves matching snippets for future chat requests
-
-That keeps the architecture compact while still demonstrating real retrieval behavior.
-
-### Guest-First Access Without Weak Isolation
-
-Users can start immediately without authentication. When they sign in, the app switches to an account-backed workspace with private persistent storage. This preserves low-friction access while keeping clean ownership boundaries in the backend.
-
-### Output Board Instead Of Chat-Only UX
-
-The output board is intentional product design, not decoration. It gives LYTA a second surface for deliverables so answers can be reviewed, copied, or exported outside the raw chat stream.
+- Guest state is temporary and scoped to the guest cookie.
+- Auth is email/password based, not OAuth or magic link.
+- Retrieval uses Durable Object state rather than a dedicated external vector database.
+- Browser-side extraction keeps the architecture compact but does not replace server-side OCR.
+- The output board is a focused Markdown capture pane, not a full artifact runtime.
 
 ## Project Structure
 
 ```text
 assets/
-  architecture.png         README banner and architecture visual
-  architecture.svg         Source for the architecture visual
-  demo.gif                 README preview asset
-  demo.png                 High-resolution preview still
-  demo.svg                 Source for the preview visual
+  architecture.svg         Source for the README architecture visual
+  architecture.png         Rendered README architecture visual
+  demo.svg                 Source for the README product preview
+  demo.png                 Rendered README product preview
 
 scripts/
-  render_asset.swift       Regenerates README raster assets from local SVG sources
+  render_asset.swift       Renders SVG assets to PNG on macOS
 
 pages/
   index.html               Main UI shell
-  styles.css               Visual system and responsive layout
+  styles.css               Minimal workspace visual system
   app-core.js              Generated browser utility bundle
-  app-attachments.js       Attachment preparation in the browser
-  app.js                   Client logic for chat, auth, uploads, board, settings
+  app-attachments.js       Browser-side attachment preparation
+  app.js                   Client logic for auth, chat, uploads, board, settings
 
 pages-src/
-  app-core.ts              TypeScript source for app-core.js during frontend migration
+  app-core.ts              TypeScript source for app-core.js
 
 src/
-  index.ts                 Worker entry
+  index.ts                 Worker entry point
   router.ts                Request orchestration and workspace routing
   auth/crypto.ts           Password and token helpers
   chat/messages.ts         Prompt shaping and message normalization
@@ -233,9 +171,11 @@ src/
     conversation.ts        Chat memory, streaming, follow-ups, summaries
   library/chunks.ts        Document chunking and citation formatting
   services/
-    ai.ts                  Workers AI model calls
+    ai.ts                  Workers AI chat calls
     embeddings.ts          Embedding generation
     retriever.ts           Small built-in knowledge retriever
+  utils/
+    serverErrors.ts        Sanitized server error logging helpers
 ```
 
 ## Stack
@@ -245,7 +185,6 @@ src/
 - Cloudflare Workers AI
 - TypeScript
 - Vanilla HTML, CSS, and browser JavaScript
-- Incremental frontend TypeScript migration with generated assets in `pages/`
 - PDF.js
 - Mammoth
 - Server-Sent Events
@@ -256,6 +195,7 @@ src/
 
 - Node.js 18+
 - Wrangler CLI
+- macOS only for the optional SVG-to-PNG asset renderer
 
 ### Install
 
@@ -265,13 +205,11 @@ npm install
 
 ### Build Client Assets
 
-If you change files under `pages-src/`, rebuild the generated browser assets before running or deploying:
-
 ```bash
 npm run build:client
 ```
 
-### Run
+### Run Locally
 
 ```bash
 wrangler dev --remote
@@ -279,41 +217,44 @@ wrangler dev --remote
 
 Open:
 
-`http://localhost:8787`
+```text
+http://localhost:8787
+```
+
+### Render README Assets
+
+```bash
+swift scripts/render_asset.swift assets/demo.svg assets/demo.png 1600 960
+swift scripts/render_asset.swift assets/architecture.svg assets/architecture.png 1600 900
+```
 
 ## Verification
 
-Current lightweight checks:
-
 ```bash
 npm run build:client
+./node_modules/.bin/tsc --noEmit
+./node_modules/.bin/tsc -p tsconfig.client.json --noEmit
 node --check pages/app-core.js
 node --check pages/app.js
 node --check pages/app-attachments.js
-./node_modules/.bin/tsc --noEmit
+git diff --check
 ```
-
-## Tradeoffs
-
-- guest mode is intentionally temporary and session-scoped
-- auth is currently email/password based, not OAuth
-- library retrieval stays inside the workspace Durable Object for clarity and smaller project scope
-- OCR and web-grounded research are still natural next steps
 
 ## Roadmap Ideas
 
-- shareable artifacts or published pages
-- OCR for scanned PDFs and images
-- research mode with explicit web citations
-- richer artifact generation beyond markdown output
+- OCR for scanned PDFs and image-heavy documents
+- Web research mode with explicit external citations
+- Shareable board outputs or published artifact pages
 - OAuth or magic-link authentication
-- stronger observability around retrieval quality and latency
+- Retrieval quality metrics and latency dashboards
+- Richer artifact generation beyond Markdown export
 
 ## Repo Quality Goals
 
-This repo is intentionally structured to read well for reviewers:
+LYTA is structured to be readable by reviewers:
 
-- clean separation of product layers and system layers
-- architecture decisions explained in writing
-- diagrams that map directly to implementation
-- a live demo that reflects the shipped product
+- clear product story and live demo path
+- explicit state ownership boundaries
+- architecture diagrams that match implementation
+- minimal frontend without framework overhead
+- failure handling that preserves product polish during AI or retrieval issues
