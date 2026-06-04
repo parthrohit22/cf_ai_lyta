@@ -18,6 +18,7 @@ import {
 import { checkRateLimit } from "./utils/rateLimit"
 import { chunkDocumentText, type LibraryCitation } from "./library/chunks"
 import { createEmbedding } from "./services/embeddings"
+import { logServerError, scopedPrefix } from "./utils/serverErrors"
 
 interface AuthUser {
   id: string
@@ -35,6 +36,9 @@ interface AuthPayload {
 const JSON_HEADERS = {
   "Content-Type": "application/json"
 }
+
+const CHAT_SERVER_ERROR =
+  "LYTA server error. Please retry; request failed before streaming started."
 
 interface Principal {
   user: AuthUser
@@ -166,6 +170,7 @@ export async function router(request: Request, env: Env): Promise<Response> {
   }
 
   if (url.pathname === "/library/import" && request.method === "POST") {
+    const requestId = crypto.randomUUID()
     const body =
       await safeJson<{ attachments?: ChatAttachment[] }>(request)
 
@@ -187,12 +192,50 @@ export async function router(request: Request, env: Env): Promise<Response> {
       return new Response("Attachment required", { status: 400 })
     }
 
-    const importedFiles =
-      await importAttachmentsIntoLibrary(env, workspace, attachments)
+    let importedFiles: unknown[]
+
+    try {
+      importedFiles =
+        await importAttachmentsIntoLibrary(env, workspace, attachments, {
+          requestId,
+          route: "/library/import",
+          attachmentCount: attachments.length,
+          principalType: principal.user.isGuest ? "guest" : "account",
+          workspacePrefix: scopedPrefix(principal.workspaceKey)
+        })
+    } catch (error) {
+      logServerError("router.library.import", error, {
+        requestId,
+        route: "/library/import",
+        attachmentCount: attachments.length,
+        principalType: principal.user.isGuest ? "guest" : "account",
+        workspacePrefix: scopedPrefix(principal.workspaceKey)
+      })
+
+      return finalizePrincipalResponse(
+        noStoreJson(
+          {
+            error: "Unable to add files to the library right now.",
+            requestId
+          },
+          undefined,
+          {
+            "X-Lyta-Request-Id": requestId
+          },
+          502
+        ),
+        principal
+      )
+    }
 
     return finalizePrincipalResponse(
       noStoreJson({
-        files: importedFiles
+        files: importedFiles,
+        requestId
+      },
+      undefined,
+      {
+        "X-Lyta-Request-Id": requestId
       }),
       principal
     )
@@ -293,6 +336,7 @@ export async function router(request: Request, env: Env): Promise<Response> {
     (url.pathname === "/chat" || url.pathname === "/chat/stream") &&
     request.method === "POST"
   ) {
+    const requestId = crypto.randomUUID()
     const body = await safeJson<ChatRequestBody>(request)
 
     if (!body) {
@@ -313,39 +357,77 @@ export async function router(request: Request, env: Env): Promise<Response> {
       return new Response("Message or attachment required", { status: 400 })
     }
 
-    await workspace.fetch("https://internal/sessions/touch", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({
-        id: sessionId
-      })
-    })
-
-    if (payload.attachments.length) {
-      await importAttachmentsIntoLibrary(env, workspace, payload.attachments)
+    const requestMetadata = {
+      requestId,
+      route: url.pathname,
+      mode: payload.mode,
+      attachmentCount: payload.attachments.length,
+      principalType: principal.user.isGuest ? "guest" : "account",
+      workspacePrefix: scopedPrefix(principal.workspaceKey),
+      sessionPrefix: scopedPrefix(sessionId)
     }
 
-    const libraryContext =
-      await searchWorkspaceLibrary(env, workspace, payload)
-
-    return forwardConversationRequest(
-        env,
-        principal.workspaceKey,
-        sessionId,
-        url.pathname,
-      {
+    try {
+      await workspace.fetch("https://internal/sessions/touch", {
         method: "POST",
         headers: JSON_HEADERS,
         body: JSON.stringify({
-          ...payload,
-          userId: principal.workspaceKey,
-          sessionId,
-          workspaceContext: libraryContext.context,
-          citations: libraryContext.citations
+          id: sessionId
         })
+      })
+    } catch (error) {
+      logServerError("router.chat.session.touch", error, requestMetadata)
+    }
+
+    if (payload.attachments.length) {
+      try {
+        await importAttachmentsIntoLibrary(
+          env,
+          workspace,
+          payload.attachments,
+          requestMetadata
+        )
+      } catch (error) {
+        logServerError("router.chat.library.import", error, requestMetadata)
       }
-    )
-      .then(response => finalizePrincipalResponse(response, principal))
+    }
+
+    const libraryContext =
+      await searchWorkspaceLibrary(env, workspace, payload, requestMetadata)
+
+    try {
+      const response =
+        await forwardConversationRequest(
+          env,
+          principal.workspaceKey,
+          sessionId,
+          url.pathname,
+          {
+            method: "POST",
+            headers: JSON_HEADERS,
+            body: JSON.stringify({
+              ...payload,
+              userId: principal.workspaceKey,
+              sessionId,
+              requestId,
+              workspaceContext: libraryContext.context,
+              citations: libraryContext.citations
+            })
+          },
+          requestId
+        )
+
+      return finalizePrincipalResponse(response, principal)
+    } catch (error) {
+      logServerError("router.chat.forward", error, requestMetadata)
+
+      return finalizePrincipalResponse(
+        url.pathname === "/chat/stream"
+          ? serverErrorSse(CHAT_SERVER_ERROR, requestId)
+          : serverErrorJson(CHAT_SERVER_ERROR, requestId),
+        principal
+      )
+    }
   }
 
   return new Response("Not Found", { status: 404 })
@@ -535,7 +617,8 @@ async function forwardConversationRequest(
   userId: string,
   sessionId: string,
   path: string,
-  init?: RequestInit
+  init?: RequestInit,
+  requestId?: string
 ) {
   const conversation =
     getConversationStub(env, userId, sessionId)
@@ -543,7 +626,10 @@ async function forwardConversationRequest(
   const response =
     await conversation.fetch(`https://internal${path}`, init)
 
-  return copyResponse(response)
+  return copyResponse(
+    response,
+    requestId ? { "X-Lyta-Request-Id": requestId } : undefined
+  )
 }
 
 async function forwardWorkspace(
@@ -603,7 +689,8 @@ async function workspaceHasSession(
 async function importAttachmentsIntoLibrary(
   env: Env,
   workspace: DurableObjectStub,
-  attachments: ChatAttachment[]
+  attachments: ChatAttachment[],
+  metadata: Record<string, unknown> = {}
 ) {
   const freshAttachments =
     attachments.filter(attachment => !attachment.libraryFileId)
@@ -644,20 +731,31 @@ async function importAttachmentsIntoLibrary(
       const parts =
         chunkDocumentText(attachment.extractedText)
 
-      const vectors =
-        await Promise.all(
-          parts.map(text => createEmbedding(env, text))
-        )
+      let vectors: number[][] = []
 
-      parts.forEach((text, index) => {
-        chunks.push({
-          id: `${signature}-${index}`,
-          fileId: signature,
-          fileName: attachment.name,
-          text,
-          vector: vectors[index]
+      try {
+        vectors =
+          await Promise.all(
+            parts.map(text => createEmbedding(env, text))
+          )
+      } catch (error) {
+        logServerError("router.library.import.embeddings", error, {
+          ...metadata,
+          chunkCount: parts.length
         })
-      })
+      }
+
+      if (vectors.length === parts.length) {
+        parts.forEach((text, index) => {
+          chunks.push({
+            id: `${signature}-${index}`,
+            fileId: signature,
+            fileName: attachment.name,
+            text,
+            vector: vectors[index]
+          })
+        })
+      }
     }
   }
 
@@ -690,7 +788,8 @@ async function importAttachmentsIntoLibrary(
 async function searchWorkspaceLibrary(
   env: Env,
   workspace: DurableObjectStub,
-  payload: ReturnType<typeof normalizeChatRequest>
+  payload: ReturnType<typeof normalizeChatRequest>,
+  metadata: Record<string, unknown> = {}
 ) {
   const userMessage: ChatMessageRecord = {
     role: "user",
@@ -709,41 +808,59 @@ async function searchWorkspaceLibrary(
     }
   }
 
-  const queryVector =
-    await createEmbedding(env, query)
+  try {
+    const queryVector =
+      await createEmbedding(env, query)
 
-  const response =
-    await workspace.fetch("https://internal/library/search", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({
-        queryVector,
-        topK: 4
+    const response =
+      await workspace.fetch("https://internal/library/search", {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({
+          queryVector,
+          topK: 4
+        })
       })
+
+    if (!response.ok) {
+      logServerError("router.library.search.status", new Error("Library search failed."), {
+        ...metadata,
+        status: response.status,
+        retrievalAttempted: true
+      })
+
+      return {
+        context: "",
+        citations: [] as LibraryCitation[]
+      }
+    }
+
+    const data =
+      await response.json() as {
+        context?: string
+        citations?: LibraryCitation[]
+      }
+
+    return {
+      context:
+        typeof data.context === "string"
+          ? data.context
+          : "",
+      citations:
+        Array.isArray(data.citations)
+          ? data.citations
+          : []
+    }
+  } catch (error) {
+    logServerError("router.library.search", error, {
+      ...metadata,
+      retrievalAttempted: true
     })
 
-  if (!response.ok) {
     return {
       context: "",
       citations: [] as LibraryCitation[]
     }
-  }
-
-  const data =
-    await response.json() as {
-      context?: string
-      citations?: LibraryCitation[]
-    }
-
-  return {
-    context:
-      typeof data.context === "string"
-        ? data.context
-        : "",
-    citations:
-      Array.isArray(data.citations)
-        ? data.citations
-        : []
   }
 }
 
@@ -834,7 +951,8 @@ function titleCase(value: string) {
 function noStoreJson(
   body: unknown,
   mergeBody?: Record<string, unknown>,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  status = 200
 ) {
   return new Response(
     JSON.stringify({
@@ -842,6 +960,7 @@ function noStoreJson(
       ...(mergeBody || {})
     }),
     {
+      status,
       headers: {
         "Content-Type": "application/json",
         "Cache-Control": "no-store",
@@ -851,12 +970,50 @@ function noStoreJson(
   )
 }
 
-function copyResponse(response: Response) {
+function serverErrorJson(message: string, requestId: string) {
+  return noStoreJson(
+    {
+      error: message,
+      requestId
+    },
+    undefined,
+    {
+      "X-Lyta-Request-Id": requestId
+    },
+    502
+  )
+}
+
+function serverErrorSse(message: string, requestId: string) {
+  return new Response(
+    `data: ${JSON.stringify({
+      error: message,
+      done: true,
+      requestId
+    })}\n\ndata: [DONE]\n\n`,
+    {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-store",
+        "X-Lyta-Request-Id": requestId
+      }
+    }
+  )
+}
+
+function copyResponse(
+  response: Response,
+  extraHeaders?: Record<string, string>
+) {
   const headers = new Headers(response.headers)
   headers.set("Cache-Control", "no-store")
+  Object.entries(extraHeaders || {}).forEach(([key, value]) => {
+    headers.set(key, value)
+  })
 
   return new Response(response.body, {
     status: response.status,
+    statusText: response.statusText,
     headers
   })
 }
@@ -874,6 +1031,7 @@ function finalizePrincipalResponse(response: Response, principal: Principal) {
 
   return new Response(response.body, {
     status: response.status,
+    statusText: response.statusText,
     headers
   })
 }

@@ -49,10 +49,23 @@ export async function runAI(
   messages: AiChatMessage[],
   options?: RunAIOptions
 ) {
-  return env.AI.run(MODEL, {
-    messages,
-    ...getModelSettings(options?.mode)
-  }) as Promise<AiTextResponse>
+  try {
+    const result =
+      await env.AI.run(MODEL, {
+        messages,
+        ...getModelSettings(options?.mode)
+      })
+
+    if (!isObject(result)) {
+      return {}
+    }
+
+    return result as AiTextResponse
+  } catch (error) {
+    throw new Error("Workers AI request failed.", {
+      cause: error
+    })
+  }
 }
 
 export async function runAIStream(
@@ -60,9 +73,34 @@ export async function runAIStream(
   messages: AiChatMessage[],
   options?: RunAIOptions
 ) {
-  return env.AI.run(MODEL, {
-    messages,
-    ...getModelSettings(options?.mode),
-    stream: true
-  }) as Promise<ReadableStream<Uint8Array>>
+  try {
+    const stream =
+      await env.AI.run(MODEL, {
+        messages,
+        ...getModelSettings(options?.mode),
+        stream: true
+      })
+
+    if (!isReadableStream(stream)) {
+      throw new Error("Workers AI did not return a readable stream.")
+    }
+
+    return stream
+  } catch (error) {
+    throw new Error("Workers AI stream failed.", {
+      cause: error
+    })
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof (value as ReadableStream<Uint8Array>).getReader === "function"
+  )
 }

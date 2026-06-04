@@ -109,6 +109,7 @@ export interface ChatRequestBody {
 export interface ConversationRequestBody extends ChatRequestBody {
   userId?: string
   sessionId?: string
+  requestId?: string
   workspaceContext?: string
   citations?: LibraryCitation[]
 }
