@@ -2,55 +2,13 @@
 window.LytaCore = (() => {
     const MAX_ATTACHMENTS = 4;
     const ACTIVE_SESSION_KEY = "lyta_active_session";
+    const THEME_MODE_KEY = "lyta_theme_mode";
     const DEFAULT_PROFILE = {
         name: "Guest User",
         workspace: "Private Workspace",
         email: ""
     };
-    const THEME_KEYS = [
-        "background",
-        "sidebar",
-        "topbar",
-        "conversation",
-        "composer",
-        "assistantBubble",
-        "userBubble",
-        "accent"
-    ];
-    const THEME_PRESETS = {
-        atelier: {
-            background: "#f7f7f8",
-            sidebar: "#f7f7f8",
-            topbar: "#ffffff",
-            conversation: "#ffffff",
-            composer: "#ffffff",
-            assistantBubble: "#ffffff",
-            userBubble: "#111827",
-            accent: "#2563eb"
-        },
-        harbor: {
-            background: "#f6f7f7",
-            sidebar: "#ffffff",
-            topbar: "#ffffff",
-            conversation: "#ffffff",
-            composer: "#ffffff",
-            assistantBubble: "#ffffff",
-            userBubble: "#111827",
-            accent: "#0f766e"
-        },
-        linen: {
-            background: "#f8f8f7",
-            sidebar: "#ffffff",
-            topbar: "#ffffff",
-            conversation: "#ffffff",
-            composer: "#ffffff",
-            assistantBubble: "#ffffff",
-            userBubble: "#111827",
-            accent: "#4f46e5"
-        }
-    };
     const DEFAULT_PREFERENCES = {
-        theme: { ...THEME_PRESETS.atelier },
         ui: {
             sidebarHidden: false,
             boardOpen: true,
@@ -76,6 +34,9 @@ window.LytaCore = (() => {
             role: message?.role === "assistant" ? "assistant" : "user",
             content: typeof message?.content === "string" ? message.content : "",
             mode: normalizeChatModeValue(message?.mode),
+            createdAt: typeof message?.createdAt === "string"
+                ? message.createdAt
+                : new Date().toISOString(),
             attachments: normalizeAttachments(message?.attachments),
             citations: normalizeCitations(message?.citations),
             followups: normalizeFollowups(message?.followups)
@@ -172,7 +133,6 @@ window.LytaCore = (() => {
     }
     function normalizePreferences(preferences) {
         return {
-            theme: sanitizeThemeConfig(preferences?.theme),
             ui: {
                 sidebarHidden: Boolean(preferences?.ui && preferences.ui?.sidebarHidden),
                 boardOpen: preferences?.ui?.boardOpen !== false,
@@ -204,56 +164,16 @@ window.LytaCore = (() => {
             updatedAt: typeof file?.updatedAt === "string" ? file.updatedAt : timestamp
         }));
     }
-    function sanitizeThemeConfig(value) {
-        const theme = {};
-        const source = value && typeof value === "object"
-            ? value
-            : undefined;
-        THEME_KEYS.forEach(key => {
-            theme[key] = normalizeHexColor(source?.[key], THEME_PRESETS.atelier[key]);
-        });
-        return theme;
+    function normalizeThemeMode(value) {
+        return value === "light" || value === "dark" ? value : "system";
     }
-    function buildThemeStyles(theme) {
-        const nextTheme = sanitizeThemeConfig(theme);
-        const pageText = readableTextColor(nextTheme.background);
-        const sidebarText = readableTextColor(nextTheme.sidebar);
-        const topbarText = readableTextColor(nextTheme.topbar);
-        const conversationText = readableTextColor(nextTheme.conversation);
-        const composerText = readableTextColor(nextTheme.composer);
-        const assistantText = readableTextColor(nextTheme.assistantBubble);
-        const userText = readableTextColor(nextTheme.userBubble);
-        const accentText = readableTextColor(nextTheme.accent);
-        return {
-            theme: nextTheme,
-            styles: {
-                "--app-background": nextTheme.background,
-                "--sidebar-background": nextTheme.sidebar,
-                "--topbar-background": nextTheme.topbar,
-                "--conversation-background": nextTheme.conversation,
-                "--composer-background": nextTheme.composer,
-                "--assistant-bubble": nextTheme.assistantBubble,
-                "--user-bubble": nextTheme.userBubble,
-                "--accent": nextTheme.accent,
-                "--page-text": pageText,
-                "--page-muted": alphaColor(pageText, 0.66),
-                "--sidebar-text": sidebarText,
-                "--sidebar-muted": alphaColor(sidebarText, 0.68),
-                "--topbar-text": topbarText,
-                "--topbar-muted": alphaColor(topbarText, 0.66),
-                "--conversation-text": conversationText,
-                "--conversation-muted": alphaColor(conversationText, 0.68),
-                "--composer-text": composerText,
-                "--composer-muted": alphaColor(composerText, 0.68),
-                "--assistant-text": assistantText,
-                "--user-text": userText,
-                "--accent-text": accentText,
-                "--line-color": alphaColor(pageText, 0.12),
-                "--line-strong": alphaColor(pageText, 0.2),
-                "--accent-soft": alphaColor(nextTheme.accent, 0.14),
-                "--shadow": `0 18px 48px ${alphaColor(pageText, isLightColor(nextTheme.background) ? 0.08 : 0.18)}`
-            }
-        };
+    function resolveThemeMode(mode) {
+        if (mode === "light" || mode === "dark") {
+            return mode;
+        }
+        return window.matchMedia?.("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light";
     }
     function toSingleLine(text, limit) {
         return (text || "")
@@ -305,6 +225,42 @@ window.LytaCore = (() => {
         const rendered = window.marked?.parse(source) || escapeHtml(source);
         return window.DOMPurify?.sanitize(rendered) || rendered;
     }
+    function applyCitationMarkers(html, citations) {
+        if (!html || !citations.length) {
+            return html;
+        }
+        let result = html;
+        citations.forEach((citation, index) => {
+            const pattern = new RegExp(`\\[${escapeRegExp(citation.label)}\\]`, "g");
+            const marker = `<button type="button" class="citation-marker" data-citation-index="${index}" ` +
+                `aria-label="Jump to source ${index + 1}: ${escapeHtml(citation.fileName)}">${index + 1}</button>`;
+            result = result.replace(pattern, marker);
+        });
+        return result;
+    }
+    function getFileTypeGlyph(mimeType, kind) {
+        if (kind === "image") {
+            return "IMG";
+        }
+        const sub = (mimeType || "").split("/").pop() || "";
+        if (sub.includes("pdf"))
+            return "PDF";
+        if (sub.includes("wordprocessingml") || sub.includes("msword"))
+            return "DOC";
+        if (sub.includes("csv"))
+            return "CSV";
+        if (sub.includes("json"))
+            return "JSON";
+        if (sub.includes("markdown"))
+            return "MD";
+        if (sub.includes("html"))
+            return "HTML";
+        if (sub.includes("xml"))
+            return "XML";
+        if (sub.includes("plain"))
+            return "TXT";
+        return "FILE";
+    }
     function setStatusState(element, message, stateName = "neutral", fallback = "") {
         element.textContent = message || fallback;
         if (stateName === "neutral") {
@@ -312,46 +268,6 @@ window.LytaCore = (() => {
             return;
         }
         element.dataset.state = stateName;
-    }
-    function normalizeHexColor(value, fallback) {
-        if (typeof value !== "string") {
-            return fallback;
-        }
-        const trimmed = value.trim();
-        if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
-            return trimmed.toLowerCase();
-        }
-        if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
-            return `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`.toLowerCase();
-        }
-        return fallback;
-    }
-    function readableTextColor(hex) {
-        return isLightColor(hex) ? "#1d1f1d" : "#f8fafc";
-    }
-    function isLightColor(hex) {
-        const { r, g, b } = hexToRgb(hex);
-        const luminance = 0.2126 * srgbChannel(r) +
-            0.7152 * srgbChannel(g) +
-            0.0722 * srgbChannel(b);
-        return luminance > 0.54;
-    }
-    function srgbChannel(value) {
-        const normalized = value / 255;
-        return normalized <= 0.03928
-            ? normalized / 12.92
-            : ((normalized + 0.055) / 1.055) ** 2.4;
-    }
-    function alphaColor(hex, alpha) {
-        const { r, g, b } = hexToRgb(hex);
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-    }
-    function hexToRgb(hex) {
-        return {
-            r: Number.parseInt(hex.slice(1, 3), 16),
-            g: Number.parseInt(hex.slice(3, 5), 16),
-            b: Number.parseInt(hex.slice(5, 7), 16)
-        };
     }
     function getInitials(name) {
         return ((name || "LY")
@@ -376,6 +292,9 @@ window.LytaCore = (() => {
             return entities[character] || character;
         });
     }
+    function escapeRegExp(text) {
+        return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
     function getErrorMessage(error, fallback = "Something went wrong.") {
         return error instanceof Error && error.message ? error.message : fallback;
     }
@@ -394,7 +313,6 @@ window.LytaCore = (() => {
     }
     function clonePreferences(preferences) {
         return {
-            theme: { ...preferences.theme },
             ui: { ...preferences.ui }
         };
     }
@@ -404,6 +322,35 @@ window.LytaCore = (() => {
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-+|-+$/g, "")
             .slice(0, 48);
+    }
+    function looksLikeHtmlError(text) {
+        return (/^\s*</.test(text) ||
+            /Cloudflare|cf-error|Error 1101|Worker threw exception|Please enable cookies/i.test(text));
+    }
+    async function extractResponseErrorMessage(response, fallback) {
+        let text = "";
+        try {
+            text = await response.text();
+        }
+        catch {
+            return fallback;
+        }
+        const contentType = response.headers.get("Content-Type") || "";
+        if (contentType.includes("application/json")) {
+            try {
+                const parsed = JSON.parse(text);
+                const message = parsed?.error || parsed?.message;
+                if (typeof message === "string" && message.trim()) {
+                    return toSingleLine(message, 240);
+                }
+            }
+            catch { }
+        }
+        const trimmed = text.trim();
+        if (!trimmed || looksLikeHtmlError(trimmed)) {
+            return fallback;
+        }
+        return toSingleLine(trimmed, 240) || fallback;
     }
     async function apiJson(path, options = {}) {
         const headers = new Headers(options.headers || undefined);
@@ -415,16 +362,15 @@ window.LytaCore = (() => {
             headers
         });
         if (!response.ok) {
-            throw new Error((await response.text()) || "Request failed.");
+            throw new Error(await extractResponseErrorMessage(response, "Request failed."));
         }
         return response.json();
     }
     return {
         MAX_ATTACHMENTS,
         ACTIVE_SESSION_KEY,
+        THEME_MODE_KEY,
         DEFAULT_PROFILE,
-        THEME_KEYS,
-        THEME_PRESETS,
         DEFAULT_PREFERENCES,
         normalizeChatModeValue,
         getChatModeLabel,
@@ -436,13 +382,15 @@ window.LytaCore = (() => {
         normalizeProfile,
         normalizePreferences,
         normalizeLibraryFiles,
-        sanitizeThemeConfig,
-        buildThemeStyles,
+        normalizeThemeMode,
+        resolveThemeMode,
         toSingleLine,
         formatMimeLabel,
         formatBytes,
         formatRelativeTime,
         renderMarkdown,
+        applyCitationMarkers,
+        getFileTypeGlyph,
         setStatusState,
         getInitials,
         hasDraggedFiles,
@@ -450,6 +398,7 @@ window.LytaCore = (() => {
         cloneAttachment,
         clonePreferences,
         slugify,
-        apiJson
+        apiJson,
+        extractResponseErrorMessage
     };
 })();

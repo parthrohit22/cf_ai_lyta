@@ -1,31 +1,10 @@
 // Source for pages/app-core.js while the browser client migrates to TypeScript.
 type ChatMode = "instant" | "deep" | "creative"
 type AttachmentKind = "image" | "document"
-type ThemeKey =
-  | "background"
-  | "sidebar"
-  | "topbar"
-  | "conversation"
-  | "composer"
-  | "assistantBubble"
-  | "userBubble"
-  | "accent"
-type ThemePresetName = "atelier" | "harbor" | "linen"
+type ThemeMode = "system" | "light" | "dark"
 type LooseRecord = Record<string, unknown> | null | undefined
 
-interface ThemeConfig {
-  background: string
-  sidebar: string
-  topbar: string
-  conversation: string
-  composer: string
-  assistantBubble: string
-  userBubble: string
-  accent: string
-}
-
 interface Preferences {
-  theme: ThemeConfig
   ui: {
     sidebarHidden: boolean
     boardOpen: boolean
@@ -64,6 +43,7 @@ interface MessageRecord {
   role: "assistant" | "user"
   content: string
   mode: ChatMode
+  createdAt: string
   attachments: MessageAttachment[]
   citations: Citation[]
   followups: string[]
@@ -89,11 +69,6 @@ interface LibraryFile {
   updatedAt: string
 }
 
-interface ThemeStylesResult {
-  theme: ThemeConfig
-  styles: Record<string, string>
-}
-
 interface MarkedApi {
   parse(source: string): string
 }
@@ -105,9 +80,8 @@ interface DOMPurifyApi {
 interface LytaCoreApi {
   MAX_ATTACHMENTS: number
   ACTIVE_SESSION_KEY: string
+  THEME_MODE_KEY: string
   DEFAULT_PROFILE: Profile
-  THEME_KEYS: readonly ThemeKey[]
-  THEME_PRESETS: Record<ThemePresetName, ThemeConfig>
   DEFAULT_PREFERENCES: Preferences
   normalizeChatModeValue(value: unknown): ChatMode
   getChatModeLabel(mode: unknown): string
@@ -119,13 +93,15 @@ interface LytaCoreApi {
   normalizeProfile(profile: LooseRecord, user?: LooseRecord): Profile
   normalizePreferences(preferences: LooseRecord): Preferences
   normalizeLibraryFiles(value: unknown): LibraryFile[]
-  sanitizeThemeConfig(value: LooseRecord): ThemeConfig
-  buildThemeStyles(theme: LooseRecord): ThemeStylesResult
+  normalizeThemeMode(value: unknown): ThemeMode
+  resolveThemeMode(mode: ThemeMode): "light" | "dark"
   toSingleLine(text: string | null | undefined, limit: number): string
   formatMimeLabel(mimeType: string | null | undefined): string
   formatBytes(size: number | null | undefined): string
   formatRelativeTime(iso: string | null | undefined): string
   renderMarkdown(markdown: string | null | undefined, fallback?: string): string
+  applyCitationMarkers(html: string, citations: Citation[]): string
+  getFileTypeGlyph(mimeType: string | null | undefined, kind: AttachmentKind): string
   setStatusState(
     element: HTMLElement,
     message: string | null | undefined,
@@ -139,6 +115,7 @@ interface LytaCoreApi {
   clonePreferences(preferences: Preferences): Preferences
   slugify(value: string | null | undefined): string
   apiJson<T = unknown>(path: string, options?: RequestInit): Promise<T>
+  extractResponseErrorMessage(response: Response, fallback: string): Promise<string>
 }
 
 interface Window {
@@ -150,6 +127,7 @@ interface Window {
 window.LytaCore = ((): LytaCoreApi => {
   const MAX_ATTACHMENTS = 4
   const ACTIVE_SESSION_KEY = "lyta_active_session"
+  const THEME_MODE_KEY = "lyta_theme_mode"
 
   const DEFAULT_PROFILE: Profile = {
     name: "Guest User",
@@ -157,52 +135,7 @@ window.LytaCore = ((): LytaCoreApi => {
     email: ""
   }
 
-  const THEME_KEYS = [
-    "background",
-    "sidebar",
-    "topbar",
-    "conversation",
-    "composer",
-    "assistantBubble",
-    "userBubble",
-    "accent"
-  ] as const satisfies readonly ThemeKey[]
-
-  const THEME_PRESETS: Record<ThemePresetName, ThemeConfig> = {
-    atelier: {
-      background: "#f7f7f8",
-      sidebar: "#f7f7f8",
-      topbar: "#ffffff",
-      conversation: "#ffffff",
-      composer: "#ffffff",
-      assistantBubble: "#ffffff",
-      userBubble: "#111827",
-      accent: "#2563eb"
-    },
-    harbor: {
-      background: "#f6f7f7",
-      sidebar: "#ffffff",
-      topbar: "#ffffff",
-      conversation: "#ffffff",
-      composer: "#ffffff",
-      assistantBubble: "#ffffff",
-      userBubble: "#111827",
-      accent: "#0f766e"
-    },
-    linen: {
-      background: "#f8f8f7",
-      sidebar: "#ffffff",
-      topbar: "#ffffff",
-      conversation: "#ffffff",
-      composer: "#ffffff",
-      assistantBubble: "#ffffff",
-      userBubble: "#111827",
-      accent: "#4f46e5"
-    }
-  }
-
   const DEFAULT_PREFERENCES: Preferences = {
-    theme: { ...THEME_PRESETS.atelier },
     ui: {
       sidebarHidden: false,
       boardOpen: true,
@@ -231,6 +164,10 @@ window.LytaCore = ((): LytaCoreApi => {
       role: message?.role === "assistant" ? "assistant" : "user",
       content: typeof message?.content === "string" ? message.content : "",
       mode: normalizeChatModeValue(message?.mode),
+      createdAt:
+        typeof message?.createdAt === "string"
+          ? message.createdAt
+          : new Date().toISOString(),
       attachments: normalizeAttachments(message?.attachments),
       citations: normalizeCitations(message?.citations),
       followups: normalizeFollowups(message?.followups)
@@ -351,7 +288,6 @@ window.LytaCore = ((): LytaCoreApi => {
 
   function normalizePreferences(preferences: LooseRecord): Preferences {
     return {
-      theme: sanitizeThemeConfig(preferences?.theme as LooseRecord),
       ui: {
         sidebarHidden: Boolean(preferences?.ui && (preferences.ui as LooseRecord)?.sidebarHidden),
         boardOpen: (preferences?.ui as LooseRecord)?.boardOpen !== false,
@@ -391,61 +327,18 @@ window.LytaCore = ((): LytaCoreApi => {
     }))
   }
 
-  function sanitizeThemeConfig(value: LooseRecord): ThemeConfig {
-    const theme = {} as ThemeConfig
-    const source =
-      value && typeof value === "object"
-        ? (value as Partial<Record<ThemeKey, unknown>>)
-        : undefined
-
-    THEME_KEYS.forEach(key => {
-      theme[key] = normalizeHexColor(source?.[key], THEME_PRESETS.atelier[key])
-    })
-
-    return theme
+  function normalizeThemeMode(value: unknown): ThemeMode {
+    return value === "light" || value === "dark" ? value : "system"
   }
 
-  function buildThemeStyles(theme: LooseRecord): ThemeStylesResult {
-    const nextTheme = sanitizeThemeConfig(theme)
-    const pageText = readableTextColor(nextTheme.background)
-    const sidebarText = readableTextColor(nextTheme.sidebar)
-    const topbarText = readableTextColor(nextTheme.topbar)
-    const conversationText = readableTextColor(nextTheme.conversation)
-    const composerText = readableTextColor(nextTheme.composer)
-    const assistantText = readableTextColor(nextTheme.assistantBubble)
-    const userText = readableTextColor(nextTheme.userBubble)
-    const accentText = readableTextColor(nextTheme.accent)
-
-    return {
-      theme: nextTheme,
-      styles: {
-        "--app-background": nextTheme.background,
-        "--sidebar-background": nextTheme.sidebar,
-        "--topbar-background": nextTheme.topbar,
-        "--conversation-background": nextTheme.conversation,
-        "--composer-background": nextTheme.composer,
-        "--assistant-bubble": nextTheme.assistantBubble,
-        "--user-bubble": nextTheme.userBubble,
-        "--accent": nextTheme.accent,
-        "--page-text": pageText,
-        "--page-muted": alphaColor(pageText, 0.66),
-        "--sidebar-text": sidebarText,
-        "--sidebar-muted": alphaColor(sidebarText, 0.68),
-        "--topbar-text": topbarText,
-        "--topbar-muted": alphaColor(topbarText, 0.66),
-        "--conversation-text": conversationText,
-        "--conversation-muted": alphaColor(conversationText, 0.68),
-        "--composer-text": composerText,
-        "--composer-muted": alphaColor(composerText, 0.68),
-        "--assistant-text": assistantText,
-        "--user-text": userText,
-        "--accent-text": accentText,
-        "--line-color": alphaColor(pageText, 0.12),
-        "--line-strong": alphaColor(pageText, 0.2),
-        "--accent-soft": alphaColor(nextTheme.accent, 0.14),
-        "--shadow": `0 18px 48px ${alphaColor(pageText, isLightColor(nextTheme.background) ? 0.08 : 0.18)}`
-      }
+  function resolveThemeMode(mode: ThemeMode): "light" | "dark" {
+    if (mode === "light" || mode === "dark") {
+      return mode
     }
+
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light"
   }
 
   function toSingleLine(text: string | null | undefined, limit: number): string {
@@ -512,6 +405,47 @@ window.LytaCore = ((): LytaCoreApi => {
     return window.DOMPurify?.sanitize(rendered) || rendered
   }
 
+  function applyCitationMarkers(html: string, citations: Citation[]): string {
+    if (!html || !citations.length) {
+      return html
+    }
+
+    let result = html
+
+    citations.forEach((citation, index) => {
+      const pattern = new RegExp(`\\[${escapeRegExp(citation.label)}\\]`, "g")
+      const marker =
+        `<button type="button" class="citation-marker" data-citation-index="${index}" ` +
+        `aria-label="Jump to source ${index + 1}: ${escapeHtml(citation.fileName)}">${index + 1}</button>`
+
+      result = result.replace(pattern, marker)
+    })
+
+    return result
+  }
+
+  function getFileTypeGlyph(
+    mimeType: string | null | undefined,
+    kind: AttachmentKind
+  ): string {
+    if (kind === "image") {
+      return "IMG"
+    }
+
+    const sub = (mimeType || "").split("/").pop() || ""
+
+    if (sub.includes("pdf")) return "PDF"
+    if (sub.includes("wordprocessingml") || sub.includes("msword")) return "DOC"
+    if (sub.includes("csv")) return "CSV"
+    if (sub.includes("json")) return "JSON"
+    if (sub.includes("markdown")) return "MD"
+    if (sub.includes("html")) return "HTML"
+    if (sub.includes("xml")) return "XML"
+    if (sub.includes("plain")) return "TXT"
+
+    return "FILE"
+  }
+
   function setStatusState(
     element: HTMLElement,
     message: string | null | undefined,
@@ -526,58 +460,6 @@ window.LytaCore = ((): LytaCoreApi => {
     }
 
     element.dataset.state = stateName
-  }
-
-  function normalizeHexColor(value: unknown, fallback: string): string {
-    if (typeof value !== "string") {
-      return fallback
-    }
-
-    const trimmed = value.trim()
-
-    if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
-      return trimmed.toLowerCase()
-    }
-
-    if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
-      return `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`.toLowerCase()
-    }
-
-    return fallback
-  }
-
-  function readableTextColor(hex: string): string {
-    return isLightColor(hex) ? "#1d1f1d" : "#f8fafc"
-  }
-
-  function isLightColor(hex: string): boolean {
-    const { r, g, b } = hexToRgb(hex)
-    const luminance =
-      0.2126 * srgbChannel(r) +
-      0.7152 * srgbChannel(g) +
-      0.0722 * srgbChannel(b)
-
-    return luminance > 0.54
-  }
-
-  function srgbChannel(value: number): number {
-    const normalized = value / 255
-    return normalized <= 0.03928
-      ? normalized / 12.92
-      : ((normalized + 0.055) / 1.055) ** 2.4
-  }
-
-  function alphaColor(hex: string, alpha: number): string {
-    const { r, g, b } = hexToRgb(hex)
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`
-  }
-
-  function hexToRgb(hex: string): { r: number; g: number; b: number } {
-    return {
-      r: Number.parseInt(hex.slice(1, 3), 16),
-      g: Number.parseInt(hex.slice(3, 5), 16),
-      b: Number.parseInt(hex.slice(5, 7), 16)
-    }
   }
 
   function getInitials(name: string | null | undefined): string {
@@ -611,6 +493,10 @@ window.LytaCore = ((): LytaCoreApi => {
     })
   }
 
+  function escapeRegExp(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  }
+
   function getErrorMessage(
     error: unknown,
     fallback = "Something went wrong."
@@ -634,7 +520,6 @@ window.LytaCore = ((): LytaCoreApi => {
 
   function clonePreferences(preferences: Preferences): Preferences {
     return {
-      theme: { ...preferences.theme },
       ui: { ...preferences.ui }
     }
   }
@@ -645,6 +530,47 @@ window.LytaCore = ((): LytaCoreApi => {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 48)
+  }
+
+  function looksLikeHtmlError(text: string): boolean {
+    return (
+      /^\s*</.test(text) ||
+      /Cloudflare|cf-error|Error 1101|Worker threw exception|Please enable cookies/i.test(text)
+    )
+  }
+
+  async function extractResponseErrorMessage(
+    response: Response,
+    fallback: string
+  ): Promise<string> {
+    let text = ""
+
+    try {
+      text = await response.text()
+    } catch {
+      return fallback
+    }
+
+    const contentType = response.headers.get("Content-Type") || ""
+
+    if (contentType.includes("application/json")) {
+      try {
+        const parsed = JSON.parse(text)
+        const message = parsed?.error || parsed?.message
+
+        if (typeof message === "string" && message.trim()) {
+          return toSingleLine(message, 240)
+        }
+      } catch {}
+    }
+
+    const trimmed = text.trim()
+
+    if (!trimmed || looksLikeHtmlError(trimmed)) {
+      return fallback
+    }
+
+    return toSingleLine(trimmed, 240) || fallback
   }
 
   async function apiJson<T = unknown>(
@@ -663,7 +589,7 @@ window.LytaCore = ((): LytaCoreApi => {
     })
 
     if (!response.ok) {
-      throw new Error((await response.text()) || "Request failed.")
+      throw new Error(await extractResponseErrorMessage(response, "Request failed."))
     }
 
     return response.json() as Promise<T>
@@ -672,9 +598,8 @@ window.LytaCore = ((): LytaCoreApi => {
   return {
     MAX_ATTACHMENTS,
     ACTIVE_SESSION_KEY,
+    THEME_MODE_KEY,
     DEFAULT_PROFILE,
-    THEME_KEYS,
-    THEME_PRESETS,
     DEFAULT_PREFERENCES,
     normalizeChatModeValue,
     getChatModeLabel,
@@ -686,13 +611,15 @@ window.LytaCore = ((): LytaCoreApi => {
     normalizeProfile,
     normalizePreferences,
     normalizeLibraryFiles,
-    sanitizeThemeConfig,
-    buildThemeStyles,
+    normalizeThemeMode,
+    resolveThemeMode,
     toSingleLine,
     formatMimeLabel,
     formatBytes,
     formatRelativeTime,
     renderMarkdown,
+    applyCitationMarkers,
+    getFileTypeGlyph,
     setStatusState,
     getInitials,
     hasDraggedFiles,
@@ -700,6 +627,7 @@ window.LytaCore = ((): LytaCoreApi => {
     cloneAttachment,
     clonePreferences,
     slugify,
-    apiJson
+    apiJson,
+    extractResponseErrorMessage
   }
 })()

@@ -1,9 +1,8 @@
 const {
   MAX_ATTACHMENTS,
   ACTIVE_SESSION_KEY,
+  THEME_MODE_KEY,
   DEFAULT_PROFILE,
-  THEME_KEYS,
-  THEME_PRESETS,
   DEFAULT_PREFERENCES,
   normalizeChatModeValue,
   getChatModeLabel,
@@ -15,12 +14,15 @@ const {
   normalizeProfile,
   normalizePreferences,
   normalizeLibraryFiles,
-  buildThemeStyles,
+  normalizeThemeMode,
+  resolveThemeMode,
   toSingleLine,
   formatMimeLabel,
   formatBytes,
   formatRelativeTime,
   renderMarkdown,
+  applyCitationMarkers,
+  getFileTypeGlyph,
   setStatusState,
   getInitials,
   hasDraggedFiles,
@@ -28,25 +30,33 @@ const {
   cloneAttachment,
   clonePreferences,
   slugify,
-  apiJson
+  apiJson,
+  extractResponseErrorMessage
 } = window.LytaCore
 
 const { prepareAttachment } = window.LytaAttachments
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 const state = {
   user: null,
   profile: { ...DEFAULT_PROFILE },
   preferences: clonePreferences(DEFAULT_PREFERENCES),
+  themeMode: "system",
   sessions: [],
   sessionId: sessionStorage.getItem(ACTIVE_SESSION_KEY) || "",
+  sessionFilterText: "",
   messages: [],
   library: [],
   pendingAttachments: [],
   selectedMessageId: "",
   sending: false,
+  activeAbortController: null,
   authMode: "register",
   uploadTarget: "composer",
-  preferenceTimer: null
+  preferenceTimer: null,
+  lastFocusedBeforeOverlay: null
 }
 
 const dom = {
@@ -61,32 +71,35 @@ const dom = {
   authSubmit: document.getElementById("authSubmit"),
   authStatus: document.getElementById("authStatus"),
   authTabs: Array.from(document.querySelectorAll("[data-auth-mode]")),
+  sidebar: document.getElementById("sidebar"),
+  sidebarBackdrop: document.getElementById("sidebarBackdrop"),
+  sidebarCollapseToggle: document.getElementById("sidebarCollapseToggle"),
+  sidebarMenuToggle: document.getElementById("sidebarMenuToggle"),
   workspaceBadge: document.getElementById("workspaceBadge"),
   workspaceName: document.getElementById("workspaceName"),
-  workspaceStorageMeta: document.getElementById("workspaceStorageMeta"),
   workspaceSummary: document.getElementById("workspaceSummary"),
   sidebarAddFile: document.getElementById("sidebarAddFile"),
   sidebarLibrary: document.getElementById("sidebarLibrary"),
+  sessionFilter: document.getElementById("sessionFilter"),
   sessionCount: document.getElementById("sessionCount"),
   sessions: document.getElementById("sessions"),
   newChat: document.getElementById("newChat"),
   chatTitle: document.getElementById("chatTitle"),
-  topbarSubtitle: document.getElementById("topbarSubtitle"),
-  workspaceModeLabel: document.getElementById("workspaceModeLabel"),
-  topbarLibraryCount: document.getElementById("topbarLibraryCount"),
-  topbarModeLabel: document.getElementById("topbarModeLabel"),
   boardToggle: document.getElementById("boardToggle"),
-  focusModeToggle: document.getElementById("focusModeToggle"),
   resetChat: document.getElementById("resetChat"),
+  chatModeButtons: Array.from(document.querySelectorAll('[data-chat-mode]')),
+  themeModeButtons: Array.from(document.querySelectorAll('[data-theme-mode]')),
   profileButton: document.getElementById("profileButton"),
   profileAvatar: document.getElementById("profileAvatar"),
-  profileButtonName: document.getElementById("profileButtonName"),
-  profileButtonWorkspace: document.getElementById("profileButtonWorkspace"),
+  profileMenu: document.getElementById("profileMenu"),
+  profileMenuName: document.getElementById("profileMenuName"),
+  profileMenuWorkspace: document.getElementById("profileMenuWorkspace"),
+  menuAuthAction: document.getElementById("menuAuthAction"),
+  menuLogoutAction: document.getElementById("menuLogoutAction"),
+  topbarOverflowToggle: document.getElementById("topbarOverflowToggle"),
+  topbarOverflowMenu: document.getElementById("topbarOverflowMenu"),
   chat: document.getElementById("chat"),
   emptyState: document.getElementById("emptyState"),
-  emptyUploadButton: document.getElementById("emptyUploadButton"),
-  emptyActivity: document.getElementById("emptyActivity"),
-  typing: document.getElementById("typing"),
   conversationSurface: document.getElementById("conversationSurface"),
   composer: document.getElementById("composer"),
   attachBtn: document.getElementById("attachBtn"),
@@ -95,13 +108,14 @@ const dom = {
   attachmentTray: document.getElementById("attachmentTray"),
   input: document.getElementById("message"),
   sendButton: document.getElementById("sendButton"),
-  attachmentSummary: document.getElementById("attachmentSummary"),
   composerStatus: document.getElementById("composerStatus"),
-  modeButtons: Array.from(document.querySelectorAll("[data-chat-mode]")),
+  boardBackdrop: document.getElementById("boardBackdrop"),
   boardTitle: document.getElementById("boardTitle"),
+  boardMeta: document.getElementById("boardMeta"),
   boardState: document.getElementById("boardState"),
   boardBody: document.getElementById("boardBody"),
   boardSources: document.getElementById("boardSources"),
+  boardClose: document.getElementById("boardClose"),
   copyBoard: document.getElementById("copyBoard"),
   downloadBoard: document.getElementById("downloadBoard"),
   settingsOverlay: document.getElementById("settingsOverlay"),
@@ -116,14 +130,16 @@ const dom = {
   saveProfile: document.getElementById("saveProfile"),
   logoutButton: document.getElementById("logoutButton"),
   profileStatus: document.getElementById("profileStatus"),
-  resetTheme: document.getElementById("resetTheme"),
   librarySection: document.getElementById("librarySection"),
   libraryUploadButton: document.getElementById("libraryUploadButton"),
   libraryStats: document.getElementById("libraryStats"),
   libraryList: document.getElementById("libraryList"),
   libraryHint: document.getElementById("libraryHint"),
   libraryStatus: document.getElementById("libraryStatus"),
-  suggestionChips: Array.from(document.querySelectorAll("[data-prompt]"))
+  suggestionChips: Array.from(document.querySelectorAll("[data-prompt]")),
+  shortcutsOverlay: document.getElementById("shortcutsOverlay"),
+  shortcutsSheet: document.getElementById("shortcutsSheet"),
+  closeShortcuts: document.getElementById("closeShortcuts")
 }
 
 const statusTargets = {
@@ -132,6 +148,94 @@ const statusTargets = {
   profile: dom.profileStatus,
   library: dom.libraryStatus
 }
+
+/* -------------------------------------------------------------------- */
+/* menu + overlay primitives                                            */
+/* -------------------------------------------------------------------- */
+
+const menus = []
+
+function createMenu(trigger, menu) {
+  const controller = {
+    trigger,
+    menu,
+    isOpen: () => !menu.hidden,
+    open() {
+      menus.forEach(other => other !== controller && other.close({ restoreFocus: false }))
+      menu.hidden = false
+      trigger.setAttribute("aria-expanded", "true")
+      const target = menu.querySelector('[role^="menuitem"]')
+      target?.focus()
+    },
+    close({ restoreFocus = true } = {}) {
+      if (menu.hidden) return
+      menu.hidden = true
+      trigger.setAttribute("aria-expanded", "false")
+      if (restoreFocus) trigger.focus()
+    }
+  }
+
+  trigger.addEventListener("click", () => {
+    controller.isOpen() ? controller.close() : controller.open()
+  })
+
+  menus.push(controller)
+  return controller
+}
+
+const profileMenuCtl = createMenu(dom.profileButton, dom.profileMenu)
+const overflowMenuCtl = createMenu(dom.topbarOverflowToggle, dom.topbarOverflowMenu)
+
+document.addEventListener("click", event => {
+  menus.forEach(controller => {
+    if (!controller.isOpen()) return
+    if (controller.menu.contains(event.target) || controller.trigger.contains(event.target)) return
+    controller.close({ restoreFocus: false })
+  })
+})
+
+function trapFocus(container) {
+  function getFocusable() {
+    return Array.from(container.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
+      el => el.offsetParent !== null
+    )
+  }
+
+  function handleKeydown(event) {
+    if (event.key !== "Tab") return
+    const focusable = getFocusable()
+    if (!focusable.length) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  container.addEventListener("keydown", handleKeydown)
+  return () => container.removeEventListener("keydown", handleKeydown)
+}
+
+function showOverlay(el) {
+  el.hidden = false
+  requestAnimationFrame(() => el.classList.add("is-visible"))
+}
+
+function hideOverlay(el) {
+  el.classList.remove("is-visible")
+  window.setTimeout(() => {
+    el.hidden = true
+  }, 200)
+}
+
+let settingsFocusRelease = null
+let authFocusRelease = null
+let shortcutsFocusRelease = null
 
 function setActiveSession(id) {
   state.sessionId = id || ""
@@ -154,6 +258,7 @@ if (window.pdfjsLib?.GlobalWorkerOptions) {
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"
 }
 
+initThemeMode()
 bindEvents()
 setComposerStatus(getDefaultStatus())
 renderPendingAttachments()
@@ -173,6 +278,52 @@ async function boot() {
   }
 }
 
+/* -------------------------------------------------------------------- */
+/* theme mode                                                           */
+/* -------------------------------------------------------------------- */
+
+function initThemeMode() {
+  let stored = "system"
+
+  try {
+    stored = normalizeThemeMode(localStorage.getItem(THEME_MODE_KEY))
+  } catch {}
+
+  applyThemeMode(stored, false)
+
+  window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (state.themeMode === "system") {
+      applyThemeMode("system", false)
+    }
+  })
+}
+
+function applyThemeMode(mode, persist) {
+  const normalized = normalizeThemeMode(mode)
+  state.themeMode = normalized
+  const resolved = resolveThemeMode(normalized)
+
+  document.documentElement.dataset.themeMode = normalized
+  document.documentElement.dataset.theme = resolved
+
+  dom.themeModeButtons.forEach(button => {
+    button.setAttribute(
+      "aria-pressed",
+      button.dataset.themeMode === normalized ? "true" : "false"
+    )
+  })
+
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_MODE_KEY, normalized)
+    } catch {}
+  }
+}
+
+/* -------------------------------------------------------------------- */
+/* event binding                                                        */
+/* -------------------------------------------------------------------- */
+
 function bindEvents() {
   dom.authTabs.forEach(button => {
     button.addEventListener("click", () => {
@@ -186,16 +337,12 @@ function bindEvents() {
     await handleAuthSubmit()
   })
 
-  dom.closeAuthModal.addEventListener("click", () => {
-    closeAuthModal()
-  })
-
-  dom.authOverlay.addEventListener("click", () => {
-    closeAuthModal()
-  })
+  dom.closeAuthModal.addEventListener("click", () => closeAuthModal())
+  dom.authOverlay.addEventListener("click", () => closeAuthModal())
 
   dom.newChat.addEventListener("click", async () => {
     await createNewSession()
+    closeMobileSidebar()
   })
 
   dom.resetChat.addEventListener("click", async () => {
@@ -203,42 +350,91 @@ function bindEvents() {
   })
 
   dom.boardToggle.addEventListener("click", () => {
-    applyUiPreferences({
-      ...state.preferences.ui,
-      boardOpen: !state.preferences.ui.boardOpen
-    }, true)
+    toggleBoard()
   })
 
-  dom.focusModeToggle.addEventListener("change", () => {
-    applyUiPreferences({
-      ...state.preferences.ui,
-      sidebarHidden: dom.focusModeToggle.checked
-    }, true)
+  dom.boardClose.addEventListener("click", () => {
+    closeMobileBoard()
+    applyUiPreferences({ ...state.preferences.ui, boardOpen: false }, true)
   })
+
+  dom.boardBackdrop.addEventListener("click", () => closeMobileBoard())
+
+  dom.sidebarCollapseToggle.addEventListener("click", () => {
+    applyUiPreferences(
+      { ...state.preferences.ui, sidebarHidden: !state.preferences.ui.sidebarHidden },
+      true
+    )
+  })
+
+  dom.sidebarMenuToggle.addEventListener("click", () => openMobileSidebar())
+  dom.sidebarBackdrop.addEventListener("click", () => closeMobileSidebar())
 
   dom.profileButton.addEventListener("click", () => {
-    openSettingsPanel()
+    syncProfileMenu()
   })
 
-  dom.closeSettings.addEventListener("click", () => {
-    closeSettingsPanel()
+  dom.profileMenu.addEventListener("click", event => {
+    const item = event.target.closest("[data-action]")
+    if (!item) return
+
+    profileMenuCtl.close({ restoreFocus: false })
+
+    switch (item.dataset.action) {
+      case "open-settings":
+        openSettingsPanel(undefined, dom.profileButton)
+        break
+      case "open-shortcuts":
+        openShortcuts(dom.profileButton)
+        break
+      case "open-auth":
+        openAuthModal(dom.profileButton)
+        break
+      case "logout":
+        logout()
+        break
+    }
   })
 
-  dom.settingsOverlay.addEventListener("click", () => {
-    closeSettingsPanel()
+  dom.topbarOverflowMenu.addEventListener("click", event => {
+    const modeItem = event.target.closest("[data-chat-mode]")
+
+    if (modeItem) {
+      applyUiPreferences(
+        { ...state.preferences.ui, chatMode: normalizeChatModeValue(modeItem.dataset.chatMode) },
+        true
+      )
+      overflowMenuCtl.close({ restoreFocus: false })
+      return
+    }
+
+    const actionItem = event.target.closest("[data-action]")
+    if (!actionItem) return
+
+    overflowMenuCtl.close({ restoreFocus: false })
+
+    if (actionItem.dataset.action === "toggle-board") toggleBoard()
+    if (actionItem.dataset.action === "clear-chat") resetCurrentSession()
+  })
+
+  dom.closeSettings.addEventListener("click", () => closeSettingsPanel())
+  dom.settingsOverlay.addEventListener("click", () => closeSettingsPanel())
+
+  dom.themeModeButtons.forEach(button => {
+    button.addEventListener("click", () => {
+      applyThemeMode(button.dataset.themeMode, true)
+    })
   })
 
   dom.saveProfile.addEventListener("click", async () => {
     await saveProfile()
   })
 
-  dom.authActionButton.addEventListener("click", () => {
-    openAuthModal()
-  })
+  dom.authActionButton.addEventListener("click", () => openAuthModal())
+  dom.logoutButton.addEventListener("click", async () => await logout())
 
-  dom.logoutButton.addEventListener("click", async () => {
-    await logout()
-  })
+  dom.closeShortcuts.addEventListener("click", () => closeShortcuts())
+  dom.shortcutsOverlay.addEventListener("click", () => closeShortcuts())
 
   dom.attachBtn.addEventListener("click", () => {
     state.uploadTarget = "composer"
@@ -256,11 +452,6 @@ function bindEvents() {
 
   dom.sidebarAddFile.addEventListener("click", () => {
     state.uploadTarget = "library"
-    dom.filePicker.click()
-  })
-
-  dom.emptyUploadButton.addEventListener("click", () => {
-    state.uploadTarget = "composer"
     dom.filePicker.click()
   })
 
@@ -287,21 +478,27 @@ function bindEvents() {
   dom.input.addEventListener("keydown", event => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()
-      sendMessage()
+      if (!state.sending) sendMessage()
     }
   })
 
   dom.input.addEventListener("input", () => {
     autoresizeTextarea()
+    syncSendButtonState()
   })
 
-  dom.modeButtons.forEach(button => {
+  dom.chatModeButtons.forEach(button => {
     button.addEventListener("click", () => {
       applyUiPreferences({
         ...state.preferences.ui,
         chatMode: normalizeChatModeValue(button.dataset.chatMode)
       }, true)
     })
+  })
+
+  dom.sessionFilter.addEventListener("input", () => {
+    state.sessionFilterText = dom.sessionFilter.value.trim().toLowerCase()
+    renderSessions()
   })
 
   dom.sessions.addEventListener("click", async event => {
@@ -314,100 +511,71 @@ function bindEvents() {
     }
 
     const sessionButton = event.target.closest("[data-session-id]")
-
     if (!sessionButton) return
 
     await selectSession(sessionButton.dataset.sessionId)
+    closeMobileSidebar()
   })
 
   dom.sessions.addEventListener("keydown", async event => {
     const sessionButton = event.target.closest("[data-session-id]")
-
     if (!sessionButton) return
 
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault()
       await selectSession(sessionButton.dataset.sessionId)
+      closeMobileSidebar()
     }
   })
 
   dom.attachmentTray.addEventListener("click", event => {
     const removeButton = event.target.closest("[data-remove-attachment]")
-
     if (!removeButton) return
-
     removePendingAttachment(removeButton.dataset.removeAttachment)
   })
 
   dom.chat.addEventListener("click", event => {
     const followupButton = event.target.closest("[data-followup]")
-
     if (followupButton) {
       useFollowup(followupButton.dataset.followup)
       return
     }
 
-    const pinButton = event.target.closest("[data-pin-message]")
+    const copyButton = event.target.closest("[data-copy-message]")
+    if (copyButton) {
+      copyMessageContent(copyButton.dataset.copyMessage)
+      return
+    }
 
+    const pinButton = event.target.closest("[data-pin-message]")
     if (pinButton) {
       selectBoardMessage(pinButton.dataset.pinMessage)
       return
     }
 
-    const assistantCard = event.target.closest("[data-select-message]")
-
-    if (!assistantCard) return
-
-    selectBoardMessage(assistantCard.dataset.selectMessage)
+    handleCitationClick(event, dom.chat)
   })
 
-  dom.copyBoard.addEventListener("click", async () => {
-    await copyBoardText()
-  })
+  dom.chat.addEventListener("mouseover", event => handleCitationHover(event, true))
+  dom.chat.addEventListener("mouseout", event => handleCitationHover(event, false))
+  dom.chat.addEventListener("focusin", event => handleCitationHover(event, true))
+  dom.chat.addEventListener("focusout", event => handleCitationHover(event, false))
 
-  dom.downloadBoard.addEventListener("click", () => {
-    downloadBoardText()
-  })
+  dom.boardBody.addEventListener("click", event => handleCitationClick(event, dom.boardBody))
+  dom.boardBody.addEventListener("mouseover", event => handleCitationHover(event, true))
+  dom.boardBody.addEventListener("mouseout", event => handleCitationHover(event, false))
+
+  dom.copyBoard.addEventListener("click", async () => await copyBoardText())
+  dom.downloadBoard.addEventListener("click", () => downloadBoardText())
 
   dom.suggestionChips.forEach(button => {
     button.addEventListener("click", () => {
       const prompt = button.dataset.prompt || ""
       dom.input.value = prompt
       autoresizeTextarea()
+      syncSendButtonState()
       dom.input.focus()
     })
-  })
-
-  document.addEventListener("input", event => {
-    const colorInput = event.target.closest("[data-theme-input]")
-
-    if (!colorInput) return
-
-    const key = colorInput.dataset.themeInput
-
-    if (!THEME_KEYS.includes(key)) return
-
-    applyThemeConfig({
-      ...state.preferences.theme,
-      [key]: colorInput.value
-    }, true)
-  })
-
-  document.addEventListener("click", event => {
-    const presetButton = event.target.closest("[data-theme-preset]")
-
-    if (!presetButton) return
-
-    const preset =
-      THEME_PRESETS[presetButton.dataset.themePreset]
-
-    if (!preset) return
-
-    applyThemeConfig(preset, true)
-  })
-
-  dom.resetTheme.addEventListener("click", () => {
-    applyThemeConfig(THEME_PRESETS.atelier, true)
   })
 
   ;[dom.conversationSurface, dom.composer].forEach(target => {
@@ -422,7 +590,125 @@ function bindEvents() {
       await addFilesToComposer(event.dataTransfer.files)
     })
   })
+
+  document.addEventListener("keydown", handleGlobalKeydown)
 }
+
+function handleGlobalKeydown(event) {
+  const mod = event.metaKey || event.ctrlKey
+
+  if (mod && event.key.toLowerCase() === "k") {
+    event.preventDefault()
+    openMobileSidebarIfNeeded()
+    dom.sessionFilter.focus()
+    return
+  }
+
+  if (mod && event.key === "Enter") {
+    event.preventDefault()
+    if (state.sending) {
+      stopActiveStream()
+    } else {
+      sendMessage()
+    }
+    return
+  }
+
+  if (mod && event.key === "/") {
+    event.preventDefault()
+    dom.shortcutsSheet.hidden ? openShortcuts() : closeShortcuts()
+    return
+  }
+
+  if (mod && event.key.toLowerCase() === "b") {
+    event.preventDefault()
+    toggleSidebar()
+    return
+  }
+
+  if (event.key === "Escape") {
+    closeTopLayer()
+  }
+}
+
+function openMobileSidebarIfNeeded() {
+  if (window.matchMedia("(max-width: 980px)").matches) {
+    openMobileSidebar()
+  } else if (state.preferences.ui.sidebarHidden) {
+    applyUiPreferences({ ...state.preferences.ui, sidebarHidden: false }, true)
+  }
+}
+
+function toggleSidebar() {
+  if (window.matchMedia("(max-width: 980px)").matches) {
+    document.body.classList.contains("sidebar-mobile-open")
+      ? closeMobileSidebar()
+      : openMobileSidebar()
+    return
+  }
+
+  applyUiPreferences(
+    { ...state.preferences.ui, sidebarHidden: !state.preferences.ui.sidebarHidden },
+    true
+  )
+}
+
+function closeTopLayer() {
+  if (!dom.shortcutsSheet.hidden) return closeShortcuts()
+  if (!dom.authModal.hidden) return closeAuthModal()
+  if (document.body.classList.contains("settings-open")) return closeSettingsPanel()
+  if (menus.some(controller => controller.isOpen())) {
+    menus.forEach(controller => controller.close({ restoreFocus: false }))
+    return
+  }
+  if (document.body.classList.contains("board-sheet-open")) return closeMobileBoard()
+  if (document.body.classList.contains("sidebar-mobile-open")) return closeMobileSidebar()
+}
+
+/* -------------------------------------------------------------------- */
+/* mobile sidebar / board sheets                                        */
+/* -------------------------------------------------------------------- */
+
+function openMobileSidebar() {
+  document.body.classList.add("sidebar-mobile-open")
+  showOverlay(dom.sidebarBackdrop)
+  dom.sidebar.querySelector(FOCUSABLE_SELECTOR)?.focus()
+}
+
+function closeMobileSidebar() {
+  if (!document.body.classList.contains("sidebar-mobile-open")) return
+  document.body.classList.remove("sidebar-mobile-open")
+  hideOverlay(dom.sidebarBackdrop)
+}
+
+function openMobileBoard() {
+  document.body.classList.add("board-sheet-open")
+  showOverlay(dom.boardBackdrop)
+}
+
+function closeMobileBoard() {
+  if (!document.body.classList.contains("board-sheet-open")) return
+  document.body.classList.remove("board-sheet-open")
+  hideOverlay(dom.boardBackdrop)
+}
+
+function toggleBoard() {
+  if (window.matchMedia("(max-width: 980px)").matches) {
+    document.body.classList.contains("board-sheet-open")
+      ? closeMobileBoard()
+      : openMobileBoard()
+    return
+  }
+
+  applyUiPreferences({
+    ...state.preferences.ui,
+    boardOpen: !state.preferences.ui.boardOpen
+  }, true)
+}
+
+/* -------------------------------------------------------------------- */
+/* auth                                                                  */
+/* -------------------------------------------------------------------- */
 
 async function handleAuthSubmit() {
   const payload = {
@@ -454,7 +740,7 @@ async function handleAuthSubmit() {
     })
 
     if (!response.ok) {
-      throw new Error(await response.text() || "Authentication failed.")
+      throw new Error(await extractResponseErrorMessage(response, "Authentication failed."))
     }
 
     dom.authPassword.value = ""
@@ -476,7 +762,7 @@ async function bootstrapWorkspace() {
   })
 
   if (!response.ok) {
-    throw new Error(await response.text() || "Unable to load workspace.")
+    throw new Error(await extractResponseErrorMessage(response, "Unable to load workspace."))
   }
 
   const data = await response.json()
@@ -490,7 +776,6 @@ async function bootstrapWorkspace() {
   state.pendingAttachments = []
 
   renderProfile()
-  applyThemeConfig(state.preferences.theme)
   applyUiPreferences(state.preferences.ui)
   renderLibrary()
   renderSessions()
@@ -530,6 +815,10 @@ async function logout() {
     setProfileStatus("Signed out. Guest mode is active.", "success")
   }
 }
+
+/* -------------------------------------------------------------------- */
+/* sessions                                                              */
+/* -------------------------------------------------------------------- */
 
 async function createNewSession() {
   const data = await apiJson("/sessions/create", {
@@ -618,7 +907,6 @@ async function loadCurrentSession() {
   updateTopbar()
   clearConversation()
   renderPendingAttachments()
-  showTyping(false)
 
   if (!state.sessionId) {
     return
@@ -671,8 +959,17 @@ async function syncSessionTitleFromServer() {
   } catch {}
 }
 
+/* -------------------------------------------------------------------- */
+/* messaging                                                             */
+/* -------------------------------------------------------------------- */
+
 async function sendMessage() {
-  if (state.sending || !state.sessionId) return
+  if (state.sending) {
+    stopActiveStream()
+    return
+  }
+
+  if (!state.sessionId) return
 
   const message = dom.input.value.trim()
 
@@ -696,7 +993,8 @@ async function sendMessage() {
     role: "user",
     content: message,
     mode,
-    attachments
+    attachments,
+    createdAt: new Date().toISOString()
   })
 
   state.messages.push(userMessage)
@@ -708,7 +1006,6 @@ async function sendMessage() {
   state.pendingAttachments = []
   renderPendingAttachments()
   updateEmptyState()
-  showTyping(true)
   scrollConversation()
 
   const assistantMessage = normalizeMessageRecord({
@@ -717,13 +1014,17 @@ async function sendMessage() {
     mode,
     attachments: [],
     citations: [],
-    followups: []
+    followups: [],
+    createdAt: new Date().toISOString()
   })
 
   state.messages.push(assistantMessage)
-  const assistantNode = createMessageElement(assistantMessage)
+  const assistantNode = createMessageElement(assistantMessage, { streaming: true })
   dom.chat.appendChild(assistantNode)
   scrollConversation()
+
+  const controller = new AbortController()
+  state.activeAbortController = controller
 
   try {
     const response = await fetch(`/chat/stream?session=${encodeURIComponent(state.sessionId)}`, {
@@ -735,7 +1036,8 @@ async function sendMessage() {
         message,
         mode,
         attachments
-      })
+      }),
+      signal: controller.signal
     })
 
     if (!response.ok) {
@@ -756,8 +1058,9 @@ async function sendMessage() {
 
     if (!assistantMessage.content.trim()) {
       assistantMessage.content = "I couldn't generate a response for that request."
-      updateAssistantNode(assistantNode, assistantMessage)
     }
+
+    updateAssistantNode(assistantNode, assistantMessage, { streaming: false })
 
     if (!metaApplied) {
       state.selectedMessageId = assistantMessage.id
@@ -771,84 +1074,60 @@ async function sendMessage() {
 
     setComposerStatus(getDefaultStatus())
   } catch (error) {
-    assistantNode.classList.add("error")
-    assistantMessage.content = [
-      "I hit an error while processing that request.",
-      "",
-      getErrorMessage(error)
-    ].join("\n")
-    assistantMessage.followups = []
-    assistantMessage.citations = []
-    updateAssistantNode(assistantNode, assistantMessage)
+    const aborted = error?.name === "AbortError"
 
-    if (!dom.input.value) {
-      dom.input.value = message
-      autoresizeTextarea()
+    if (aborted) {
+      assistantMessage.content = assistantMessage.content.trim() || "Generation stopped."
+      updateAssistantNode(assistantNode, assistantMessage, { streaming: false })
+      setComposerStatus("Generation stopped.", "warning")
+    } else {
+      assistantNode.classList.add("error")
+      assistantMessage.content = [
+        "I hit an error while processing that request.",
+        "",
+        getErrorMessage(error)
+      ].join("\n")
+      assistantMessage.followups = []
+      assistantMessage.citations = []
+      updateAssistantNode(assistantNode, assistantMessage, { streaming: false })
+
+      if (!dom.input.value) {
+        dom.input.value = message
+        autoresizeTextarea()
+      }
+
+      state.pendingAttachments = attachments.map(cloneAttachment)
+      renderPendingAttachments()
+
+      setComposerStatus(
+        getErrorMessage(error, "Unable to send this message."),
+        "error"
+      )
     }
-
-    state.pendingAttachments = attachments.map(cloneAttachment)
-    renderPendingAttachments()
-
-    setComposerStatus(
-      getErrorMessage(error, "Unable to send this message."),
-      "error"
-    )
   } finally {
-    showTyping(false)
+    state.activeAbortController = null
     state.sending = false
     setSendingState(false)
     scrollConversation()
   }
 }
 
-async function readChatFailureMessage(response) {
-  const fallback =
-    "LYTA server error. Please retry; request failed before streaming started."
-
-  let text = ""
-
-  try {
-    text = await response.text()
-  } catch {
-    return fallback
-  }
-
-  const contentType = response.headers.get("Content-Type") || ""
-
-  if (contentType.includes("application/json")) {
-    try {
-      const parsed = JSON.parse(text)
-      const message = parsed?.error || parsed?.message
-
-      if (typeof message === "string" && message.trim()) {
-        return toSingleLine(message).slice(0, 240)
-      }
-    } catch {}
-  }
-
-  if (!text.trim() || looksLikeHtmlError(text)) {
-    return fallback
-  }
-
-  return toSingleLine(text).slice(0, 240) || fallback
+function stopActiveStream() {
+  state.activeAbortController?.abort()
 }
 
-function looksLikeHtmlError(text) {
-  return (
-    /^\s*</.test(text) ||
-    /Cloudflare|cf-error|Error 1101|Worker threw exception|Please enable cookies/i.test(text)
+async function readChatFailureMessage(response) {
+  return extractResponseErrorMessage(
+    response,
+    "LYTA server error. Please retry; request failed before streaming started."
   )
 }
 
 function handleAssistantPayload(parsed, assistantMessage, assistantNode) {
   if (typeof parsed.response === "string") {
     assistantMessage.content += parsed.response
-    syncAssistantMessage(assistantNode, assistantMessage)
+    syncAssistantMessage(assistantNode, assistantMessage, { streaming: true })
     return false
-  }
-
-  if (parsed.done) {
-    showTyping(false)
   }
 
   if (parsed.error) {
@@ -872,12 +1151,12 @@ function handleAssistantPayload(parsed, assistantMessage, assistantNode) {
   }
 
   state.selectedMessageId = assistantMessage.id
-  syncAssistantMessage(assistantNode, assistantMessage)
+  syncAssistantMessage(assistantNode, assistantMessage, { streaming: true })
   return true
 }
 
-function syncAssistantMessage(node, message) {
-  updateAssistantNode(node, message)
+function syncAssistantMessage(node, message, opts) {
+  updateAssistantNode(node, message, opts)
 
   if (state.selectedMessageId === message.id) {
     renderBoard()
@@ -930,45 +1209,26 @@ function parseStreamChunk(chunk) {
     .filter(Boolean)
 }
 
-function createMessageElement(message) {
+/* -------------------------------------------------------------------- */
+/* message rendering                                                     */
+/* -------------------------------------------------------------------- */
+
+function createMessageElement(message, opts = {}) {
   const article = document.createElement("article")
   article.className = `message ${message.role}`
   article.dataset.messageId = message.id
 
-  const meta = document.createElement("div")
-  meta.className = "message-meta"
-
-  const label = document.createElement("span")
-  label.textContent = message.role === "assistant" ? "Lyta" : "You"
-
-  const stateText = document.createElement("span")
-  const fileCount = message.attachments?.length || 0
-  const sourceCount = message.citations?.length || 0
-  stateText.textContent = [
-    message.role === "assistant" ? getChatModeLabel(message.mode) : "",
-    fileCount ? `${fileCount} file${fileCount === 1 ? "" : "s"}` : "",
-    message.role === "assistant" && sourceCount
-      ? `${sourceCount} source${sourceCount === 1 ? "" : "s"}`
-      : ""
-  ].filter(Boolean).join(" · ")
-
-  meta.append(label, stateText)
+  const role = document.createElement("div")
+  role.className = "message-role"
+  role.textContent = message.role === "assistant" ? "Lyta" : "You"
+  article.appendChild(role)
 
   const card = document.createElement("div")
   card.className = "message-card"
 
-  if (message.role === "assistant") {
-    card.dataset.selectMessage = message.id
-  }
-
   const body = document.createElement("div")
   body.className = "message-body"
-  renderMessageContent(body, message)
-
-  const footer = document.createElement("div")
-  footer.className = "message-footer"
-  renderMessageFooter(footer, message)
-
+  renderMessageContent(body, message, opts)
   card.appendChild(body)
 
   if (message.attachments?.length) {
@@ -982,11 +1242,15 @@ function createMessageElement(message) {
     card.appendChild(stack)
   }
 
+  const footer = document.createElement("div")
+  footer.className = "message-footer"
+  renderMessageFooter(footer, message)
+
   if (footer.childElementCount) {
     card.appendChild(footer)
   }
 
-  article.append(meta, card)
+  article.appendChild(card)
 
   if (message.id === state.selectedMessageId) {
     article.classList.add("is-selected")
@@ -995,16 +1259,23 @@ function createMessageElement(message) {
   return article
 }
 
-function updateAssistantNode(node, message) {
+function updateAssistantNode(node, message, opts = {}) {
   const body = node.querySelector(".message-body")
-  const footer = node.querySelector(".message-footer") || document.createElement("div")
+  let footer = node.querySelector(".message-footer")
 
-  renderMessageContent(body, message)
+  renderMessageContent(body, message, opts)
+
+  if (!footer) {
+    footer = document.createElement("div")
+    footer.className = "message-footer"
+  }
+
   renderMessageFooter(footer, message)
 
+  const card = node.querySelector(".message-card")
+
   if (!footer.parentElement && footer.childElementCount) {
-    footer.className = "message-footer"
-    node.querySelector(".message-card").appendChild(footer)
+    card.appendChild(footer)
   }
 
   if (footer.parentElement && !footer.childElementCount) {
@@ -1012,9 +1283,24 @@ function updateAssistantNode(node, message) {
   }
 }
 
-function renderMessageContent(target, message) {
+function renderMessageContent(target, message, opts = {}) {
   if (message.role === "assistant") {
-    target.innerHTML = renderMarkdown(message.content, "...")
+    if (!message.content && opts.streaming) {
+      target.innerHTML =
+        '<div class="skeleton-lines" aria-hidden="true"><span></span><span></span><span></span></div>'
+      return
+    }
+
+    const html = renderMarkdown(message.content, "")
+    target.innerHTML = applyCitationMarkers(html, message.citations)
+
+    if (opts.streaming) {
+      const cursor = document.createElement("span")
+      cursor.className = "stream-cursor"
+      cursor.setAttribute("aria-hidden", "true")
+      target.appendChild(cursor)
+    }
+
     return
   }
 
@@ -1027,6 +1313,14 @@ function renderMessageFooter(target, message) {
   if (message.role === "assistant" && message.content.trim()) {
     const actions = document.createElement("div")
     actions.className = "message-actions"
+
+    const copy = document.createElement("button")
+    copy.type = "button"
+    copy.className = "message-action"
+    copy.dataset.copyMessage = message.id
+    copy.textContent = "Copy"
+    copy.setAttribute("aria-label", "Copy response")
+    actions.appendChild(copy)
 
     const pin = document.createElement("button")
     pin.type = "button"
@@ -1041,15 +1335,24 @@ function renderMessageFooter(target, message) {
   }
 
   if (message.citations.length) {
+    const details = document.createElement("details")
+    details.className = "sources-disclosure"
+
+    const summary = document.createElement("summary")
+    summary.textContent = `Sources (${message.citations.length})`
+    details.appendChild(summary)
+
     const list = document.createElement("div")
     list.className = "sources-list"
 
-    message.citations.forEach(citation => {
+    message.citations.forEach((citation, index) => {
       const card = document.createElement("div")
       card.className = "source-card"
+      card.dataset.citationIndex = String(index)
+      card.tabIndex = -1
 
       const title = document.createElement("strong")
-      title.textContent = citation.fileName
+      title.textContent = `${index + 1} · ${citation.fileName}`
 
       const meta = document.createElement("p")
       meta.textContent = citation.snippet
@@ -1058,7 +1361,8 @@ function renderMessageFooter(target, message) {
       list.appendChild(card)
     })
 
-    target.appendChild(list)
+    details.appendChild(list)
+    target.appendChild(details)
   }
 
   if (message.followups.length) {
@@ -1083,6 +1387,48 @@ function renderMessageFooter(target, message) {
   }
 }
 
+function handleCitationHover(event, active) {
+  const marker = event.target.closest(".citation-marker")
+  if (!marker) return
+  highlightCitation(marker, active)
+}
+
+function handleCitationClick(event, container) {
+  const marker = event.target.closest(".citation-marker")
+  if (!marker) return
+
+  const scope = marker.closest(".message-card") || container
+  const details = scope.querySelector(".sources-disclosure")
+
+  if (details) details.open = true
+
+  const match = scope.querySelector(
+    `.source-card[data-citation-index="${marker.dataset.citationIndex}"], .board-source[data-citation-index="${marker.dataset.citationIndex}"]`
+  )
+
+  match?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  match?.focus()
+}
+
+function highlightCitation(marker, active) {
+  const scope = marker.closest(".message-card") || marker.closest("#artifactPanel") || document
+  const match = scope.querySelector(
+    `.source-card[data-citation-index="${marker.dataset.citationIndex}"], .board-source[data-citation-index="${marker.dataset.citationIndex}"]`
+  )
+
+  marker.classList.toggle("is-active", active)
+  match?.classList.toggle("is-active", active)
+}
+
+function copyMessageContent(id) {
+  const message = state.messages.find(item => item.id === id)
+  if (!message) return
+
+  navigator.clipboard.writeText(message.content).then(() => {
+    setComposerStatus("Response copied.", "success")
+  }).catch(() => {})
+}
+
 function createAttachmentCard(attachment) {
   const card = document.createElement("div")
   card.className = "attachment-card"
@@ -1097,6 +1443,13 @@ function createAttachmentCard(attachment) {
 
   const row = document.createElement("div")
   row.className = "attachment-row"
+
+  if (!(attachment.kind === "image" && attachment.dataUrl)) {
+    const glyph = document.createElement("span")
+    glyph.className = "file-glyph"
+    glyph.textContent = getFileTypeGlyph(attachment.mimeType, attachment.kind)
+    row.appendChild(glyph)
+  }
 
   const copy = document.createElement("div")
   copy.className = "attachment-copy"
@@ -1131,62 +1484,70 @@ function createAttachmentCard(attachment) {
   return card
 }
 
+/* -------------------------------------------------------------------- */
+/* sidebar rendering                                                     */
+/* -------------------------------------------------------------------- */
+
 function renderSessions() {
   dom.sessions.innerHTML = ""
 
+  const filtered = state.sessionFilterText
+    ? state.sessions.filter(session =>
+        session.title.toLowerCase().includes(state.sessionFilterText)
+      )
+    : state.sessions
+
   if (!state.sessions.length) {
     const empty = document.createElement("div")
-    empty.className = "session"
+    empty.className = "sidebar-empty"
     empty.textContent = "No saved chats yet."
+    dom.sessions.appendChild(empty)
+  } else if (!filtered.length) {
+    const empty = document.createElement("div")
+    empty.className = "sidebar-empty"
+    empty.textContent = "No chats match your filter."
     dom.sessions.appendChild(empty)
   }
 
-  state.sessions.forEach(session => {
+  filtered.forEach(session => {
     const row = document.createElement("div")
     row.className = `session${session.id === state.sessionId ? " active" : ""}`
     row.dataset.sessionId = session.id
     row.tabIndex = 0
-    row.setAttribute("role", "button")
+    row.setAttribute("role", "listitem button")
 
     const copy = document.createElement("div")
     copy.className = "session-copy"
 
     const title = document.createElement("strong")
     title.textContent = session.title
+    copy.appendChild(title)
 
-    const meta = document.createElement("span")
-    meta.textContent = formatRelativeTime(session.updatedAt)
-
-    copy.append(title, meta)
+    const time = document.createElement("span")
+    time.className = "session-time"
+    time.textContent = formatRelativeTime(session.updatedAt)
 
     const remove = document.createElement("button")
     remove.type = "button"
     remove.className = "session-delete"
     remove.dataset.deleteSession = session.id
     remove.setAttribute("aria-label", `Delete ${session.title}`)
-    remove.textContent = "×"
+    remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-x"></use></svg>'
 
-    row.append(copy, remove)
+    row.append(copy, time, remove)
     dom.sessions.appendChild(row)
   })
 
   dom.sessionCount.textContent = `${state.sessions.length} chat${state.sessions.length === 1 ? "" : "s"}`
-  renderEmptyActivity()
 }
 
 function renderProfile() {
   const guest = isGuestUser()
-  const workspaceLabel = guest ? "Temporary workspace" : "Saved workspace"
+  const workspaceLabel = guest ? "Guest" : "Account"
 
   dom.profileAvatar.textContent = getInitials(state.profile.name)
-  dom.profileButtonName.textContent = state.profile.name
-  dom.profileButtonWorkspace.textContent = guest
-    ? "Temporary session"
-    : state.profile.workspace
   dom.workspaceBadge.textContent = workspaceLabel
   dom.workspaceName.textContent = state.profile.workspace
-  dom.workspaceStorageMeta.textContent = guest ? "Guest" : "Account"
-  dom.workspaceModeLabel.textContent = workspaceLabel
   dom.profileNameInput.value = state.profile.name
   dom.profileWorkspaceInput.value = state.profile.workspace
   dom.profileEmailText.textContent = guest
@@ -1197,14 +1558,22 @@ function renderProfile() {
     ? "Guest chats and files are temporary until you sign in."
     : "Chats, files, and preferences are stored only inside your account."
   dom.authActionButton.hidden = !guest
-  dom.saveProfile.textContent = guest ? "Save For This Session" : "Save Profile"
   dom.logoutButton.hidden = guest
   delete dom.profileStatus.dataset.state
   dom.profileStatus.textContent = guest
     ? "Guest settings last for the current session only."
     : "Profile updates apply across refreshes."
 
+  syncProfileMenu()
   updateWorkspaceSummary()
+}
+
+function syncProfileMenu() {
+  const guest = isGuestUser()
+  dom.profileMenuName.textContent = state.profile.name
+  dom.profileMenuWorkspace.textContent = guest ? "Temporary session" : state.profile.workspace
+  dom.menuAuthAction.hidden = !guest
+  dom.menuLogoutAction.hidden = guest
 }
 
 function renderLibrary() {
@@ -1215,15 +1584,12 @@ function renderLibrary() {
     : "Files are available across chats."
 
   renderSidebarLibrary()
-  renderEmptyActivity()
   updateWorkspaceSummary()
 
   if (!state.library.length) {
     const empty = document.createElement("div")
     empty.className = "library-card"
-    empty.textContent = isGuestUser()
-      ? "No files yet."
-      : "No files yet."
+    empty.textContent = "No files yet."
     dom.libraryList.appendChild(empty)
     return
   }
@@ -1232,33 +1598,34 @@ function renderLibrary() {
     const card = document.createElement("article")
     card.className = "library-card"
 
-    const header = document.createElement("div")
-    header.className = "library-card-header"
+    const glyph = document.createElement("span")
+    glyph.className = "file-glyph"
+    glyph.textContent = getFileTypeGlyph(file.mimeType, file.kind)
 
     const copy = document.createElement("div")
+    copy.className = "library-card-copy"
 
     const title = document.createElement("strong")
     title.textContent = file.name
 
     const meta = document.createElement("p")
     meta.textContent = [
-      file.kind === "image" ? "Image" : "Document",
       formatMimeLabel(file.mimeType),
       formatBytes(file.size),
-      file.summary || formatRelativeTime(file.updatedAt)
+      formatRelativeTime(file.updatedAt)
     ].filter(Boolean).join(" · ")
 
     copy.append(title, meta)
-
-    header.appendChild(copy)
 
     const actions = document.createElement("div")
     actions.className = "library-card-actions"
 
     const useButton = document.createElement("button")
     useButton.type = "button"
-    useButton.className = "secondary-button"
-    useButton.textContent = "Use In Chat"
+    useButton.className = "icon-button"
+    useButton.setAttribute("aria-label", `Use ${file.name} in chat`)
+    useButton.title = "Use in chat"
+    useButton.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>'
     useButton.addEventListener("click", () => {
       addLibraryFileToDraft(file.libraryFileId)
       closeSettingsPanel()
@@ -1266,14 +1633,16 @@ function renderLibrary() {
 
     const deleteButton = document.createElement("button")
     deleteButton.type = "button"
-    deleteButton.className = "secondary-button"
-    deleteButton.textContent = "Delete"
+    deleteButton.className = "icon-button"
+    deleteButton.setAttribute("aria-label", `Delete ${file.name}`)
+    deleteButton.title = "Delete"
+    deleteButton.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-x"></use></svg>'
     deleteButton.addEventListener("click", async () => {
       await deleteLibraryFile(file.libraryFileId)
     })
 
     actions.append(useButton, deleteButton)
-    card.append(header, actions)
+    card.append(glyph, copy, actions)
     dom.libraryList.appendChild(card)
   })
 }
@@ -1289,11 +1658,15 @@ function renderSidebarLibrary() {
     return
   }
 
-  state.library.slice(0, 3).forEach(file => {
+  state.library.slice(0, 4).forEach(file => {
     const row = document.createElement("button")
     row.type = "button"
     row.className = "sidebar-file"
     row.title = `Attach ${file.name}`
+
+    const glyph = document.createElement("span")
+    glyph.className = "file-glyph"
+    glyph.textContent = getFileTypeGlyph(file.mimeType, file.kind)
 
     const copy = document.createElement("span")
     copy.className = "sidebar-file-copy"
@@ -1302,67 +1675,16 @@ function renderSidebarLibrary() {
     title.textContent = file.name
 
     const meta = document.createElement("span")
-    meta.textContent = [
-      file.kind === "image" ? "Image" : "Document",
-      formatRelativeTime(file.updatedAt)
-    ].join(" · ")
+    meta.textContent = formatBytes(file.size)
 
     copy.append(title, meta)
 
-    row.appendChild(copy)
+    row.append(glyph, copy)
     row.addEventListener("click", () => {
       addLibraryFileToDraft(file.libraryFileId)
     })
 
     dom.sidebarLibrary.appendChild(row)
-  })
-}
-
-function renderEmptyActivity() {
-  dom.emptyActivity.innerHTML = ""
-
-  const activity = [
-    ...state.library.slice(0, 2).map(file => ({
-      label: file.extractedText ? "Searchable file" : "Stored file",
-      title: file.name,
-      meta: formatRelativeTime(file.updatedAt)
-    })),
-    ...state.sessions.slice(0, 2).map(session => ({
-      label: "Chat",
-      title: session.title,
-      meta: formatRelativeTime(session.updatedAt)
-    }))
-  ].slice(0, 4)
-
-  if (!activity.length) {
-    const empty = document.createElement("div")
-    empty.className = "activity-empty"
-    empty.textContent = `${state.library.length} files · ${state.sessions.length} chats`
-    dom.emptyActivity.appendChild(empty)
-    return
-  }
-
-  activity.forEach(item => {
-    const row = document.createElement("div")
-    row.className = "activity-row"
-
-    const copy = document.createElement("div")
-    copy.className = "activity-copy"
-
-    const label = document.createElement("span")
-    label.textContent = item.label
-
-    const title = document.createElement("strong")
-    title.textContent = item.title
-
-    copy.append(label, title)
-
-    const meta = document.createElement("span")
-    meta.className = "activity-time"
-    meta.textContent = item.meta
-
-    row.append(copy, meta)
-    dom.emptyActivity.appendChild(row)
   })
 }
 
@@ -1372,187 +1694,48 @@ function updateWorkspaceSummary() {
 
   dom.workspaceSummary.textContent =
     `${fileCount} file${fileCount === 1 ? "" : "s"} · ${chatCount} chat${chatCount === 1 ? "" : "s"}`
-  dom.topbarLibraryCount.textContent =
-    `${fileCount} file${fileCount === 1 ? "" : "s"}`
 }
+
+/* -------------------------------------------------------------------- */
+/* composer / attachments                                               */
+/* -------------------------------------------------------------------- */
 
 function renderPendingAttachments() {
   dom.attachmentTray.innerHTML = ""
 
-  dom.attachmentSummary.textContent = state.pendingAttachments.length
-    ? `${state.pendingAttachments.length} file${state.pendingAttachments.length === 1 ? "" : "s"} attached`
-    : "No files attached"
-
   state.pendingAttachments.forEach(attachment => {
-    const card = document.createElement("div")
-    card.className = "attachment-card"
+    const chip = document.createElement("div")
+    chip.className = "attachment-chip"
 
-    const row = document.createElement("div")
-    row.className = "attachment-row"
+    const glyph = document.createElement("span")
+    glyph.className = "file-glyph"
+    glyph.textContent = getFileTypeGlyph(attachment.mimeType, attachment.kind)
 
-    const main = document.createElement("div")
-    main.className = "attachment-draft-main"
+    const copy = document.createElement("span")
+    copy.className = "attachment-chip-copy"
 
-    if (attachment.kind === "image" && attachment.dataUrl) {
-      const image = document.createElement("img")
-      image.className = "attachment-thumb"
-      image.src = attachment.dataUrl
-      image.alt = attachment.name
-      main.appendChild(image)
-    }
+    const name = document.createElement("span")
+    name.className = "attachment-chip-name"
+    name.textContent = attachment.name
 
-    const copy = document.createElement("div")
-    copy.className = "attachment-copy"
+    const size = document.createElement("span")
+    size.className = "attachment-chip-size"
+    size.textContent = formatBytes(attachment.size)
 
-    const title = document.createElement("p")
-    title.className = "attachment-title"
-    title.textContent = attachment.name
-
-    const meta = document.createElement("div")
-    meta.className = "attachment-meta"
-    meta.textContent = [
-      attachment.kind === "image" ? "Image" : "Document",
-      formatMimeLabel(attachment.mimeType),
-      formatBytes(attachment.size)
-    ].join(" · ")
-
-    copy.append(title, meta)
-
-    if (attachment.summary) {
-      const snippet = document.createElement("p")
-      snippet.className = "attachment-snippet"
-      snippet.textContent = attachment.summary
-      copy.appendChild(snippet)
-    }
-
-    main.appendChild(copy)
+    copy.append(name, size)
 
     const remove = document.createElement("button")
     remove.type = "button"
     remove.className = "attachment-remove"
     remove.dataset.removeAttachment = attachment.id
     remove.setAttribute("aria-label", `Remove ${attachment.name}`)
-    remove.textContent = "×"
+    remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-x"></use></svg>'
 
-    row.append(main, remove)
-    card.appendChild(row)
-    dom.attachmentTray.appendChild(card)
+    chip.append(glyph, copy, remove)
+    dom.attachmentTray.appendChild(chip)
   })
-}
 
-function renderBoard() {
-  syncSelectedMessageStyles()
-
-  const message = getSelectedAssistantMessage()
-
-  if (!message) {
-    dom.boardTitle.textContent = "Board"
-    dom.boardState.hidden = false
-    dom.boardBody.hidden = true
-    dom.boardSources.hidden = true
-    dom.boardBody.innerHTML = ""
-    dom.boardSources.innerHTML = ""
-    return
-  }
-
-  dom.boardTitle.textContent = deriveBoardTitle(message)
-  dom.boardState.hidden = true
-  dom.boardBody.hidden = false
-  dom.boardBody.innerHTML = renderMarkdown(message.content)
-
-  renderBoardSources(message.citations)
-}
-
-function renderBoardSources(citations) {
-  dom.boardSources.innerHTML = ""
-
-  if (!citations.length) {
-    dom.boardSources.hidden = true
-    return
-  }
-
-  dom.boardSources.hidden = false
-
-  const heading = document.createElement("div")
-  heading.className = "board-sources-heading"
-  heading.textContent = "Sources"
-  dom.boardSources.appendChild(heading)
-
-  citations.forEach(citation => {
-    const card = document.createElement("div")
-    card.className = "board-source"
-
-    const copy = document.createElement("div")
-    copy.className = "board-source-copy"
-
-    const title = document.createElement("strong")
-    title.textContent = `${citation.label} · ${citation.fileName}`
-
-    const snippet = document.createElement("p")
-    snippet.textContent = citation.snippet
-
-    copy.append(title, snippet)
-    card.appendChild(copy)
-    dom.boardSources.appendChild(card)
-  })
-}
-
-function openSettingsPanel(section) {
-  dom.settingsOverlay.hidden = false
-  document.body.classList.add("settings-open")
-  dom.settingsPanel.setAttribute("aria-hidden", "false")
-
-  if (section === "library") {
-    dom.librarySection.scrollIntoView({
-      behavior: "smooth",
-      block: "start"
-    })
-  }
-}
-
-function closeSettingsPanel() {
-  document.body.classList.remove("settings-open")
-  dom.settingsPanel.setAttribute("aria-hidden", "true")
-  dom.settingsOverlay.hidden = true
-}
-
-function openAuthModal() {
-  closeSettingsPanel()
-  dom.authOverlay.hidden = false
-  dom.authModal.hidden = false
-  dom.authModal.setAttribute("aria-hidden", "false")
-  setAuthStatus("")
-  ;(state.authMode === "register" ? dom.authName : dom.authEmail).focus()
-}
-
-function closeAuthModal() {
-  dom.authOverlay.hidden = true
-  dom.authModal.hidden = true
-  dom.authModal.setAttribute("aria-hidden", "true")
-}
-
-async function saveProfile() {
-  const payload = {
-    name: dom.profileNameInput.value.trim(),
-    workspace: dom.profileWorkspaceInput.value.trim()
-  }
-
-  try {
-    const data = await apiJson("/workspace/profile", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    })
-
-    state.profile = normalizeProfile(data.profile, state.user)
-    renderProfile()
-    setProfileStatus("Profile saved.", "success")
-    updateTopbar()
-  } catch (error) {
-    setProfileStatus(
-      getErrorMessage(error, "Unable to save the profile."),
-      "error"
-    )
-  }
+  syncSendButtonState()
 }
 
 async function addFilesToComposer(fileList) {
@@ -1637,7 +1820,6 @@ async function refreshLibrary() {
   const data = await apiJson("/library")
   state.library = normalizeLibraryFiles(data.files)
   renderLibrary()
-  updateTopbar()
 }
 
 async function deleteLibraryFile(id) {
@@ -1657,7 +1839,6 @@ async function deleteLibraryFile(id) {
     renderPendingAttachments()
     setLibraryStatus("File removed from your library.", "success")
     setComposerStatus(getDefaultStatus())
-    updateTopbar()
   } catch (error) {
     setLibraryStatus(
       getErrorMessage(error, "Unable to delete this file."),
@@ -1719,13 +1900,22 @@ function removePendingAttachment(id) {
 function useFollowup(text) {
   dom.input.value = text || ""
   autoresizeTextarea()
+  syncSendButtonState()
   dom.input.focus()
 }
+
+/* -------------------------------------------------------------------- */
+/* board                                                                 */
+/* -------------------------------------------------------------------- */
 
 function selectBoardMessage(id) {
   if (!id) return
   state.selectedMessageId = id
   renderBoard()
+
+  if (window.matchMedia("(max-width: 980px)").matches) {
+    openMobileBoard()
+  }
 }
 
 async function copyBoardText() {
@@ -1754,42 +1944,170 @@ function downloadBoardText() {
   URL.revokeObjectURL(url)
 }
 
-function clearConversation() {
-  dom.chat.innerHTML = ""
-  updateEmptyState()
+function renderBoard() {
+  syncSelectedMessageStyles()
+
+  const message = getSelectedAssistantMessage()
+
+  if (!message) {
+    dom.boardTitle.textContent = "Board"
+    dom.boardMeta.hidden = true
+    dom.boardState.hidden = false
+    dom.boardBody.hidden = true
+    dom.boardSources.hidden = true
+    dom.boardBody.innerHTML = ""
+    dom.boardSources.innerHTML = ""
+    return
+  }
+
+  dom.boardTitle.textContent = deriveBoardTitle(message)
+  dom.boardMeta.hidden = false
+  dom.boardMeta.textContent =
+    `${getCurrentSessionTitle()} · ${formatRelativeTime(message.createdAt)}`
+  dom.boardState.hidden = true
+  dom.boardBody.hidden = false
+  dom.boardBody.innerHTML = applyCitationMarkers(renderMarkdown(message.content), message.citations)
+
+  renderBoardSources(message.citations)
 }
 
-function updateEmptyState() {
-  dom.emptyState.hidden = dom.chat.childElementCount > 0
-}
+function renderBoardSources(citations) {
+  dom.boardSources.innerHTML = ""
 
-function updateTopbar() {
-  dom.chatTitle.textContent = getCurrentSessionTitle()
-  const scope = isGuestUser()
-    ? "Temporary workspace"
-    : "Saved workspace"
+  if (!citations.length) {
+    dom.boardSources.hidden = true
+    return
+  }
 
-  dom.workspaceModeLabel.textContent = scope
-  dom.topbarSubtitle.textContent =
-    `${state.library.length} file${state.library.length === 1 ? "" : "s"} · ${state.sessions.length} chat${state.sessions.length === 1 ? "" : "s"}`
-  updateWorkspaceSummary()
-}
+  dom.boardSources.hidden = false
 
-function applyThemeConfig(theme, persist = false) {
-  const { theme: nextTheme, styles } = buildThemeStyles(theme)
-  state.preferences.theme = nextTheme
+  const heading = document.createElement("div")
+  heading.className = "board-sources-heading"
+  heading.textContent = "Sources"
+  dom.boardSources.appendChild(heading)
 
-  Object.entries(styles).forEach(([name, value]) => {
-    document.documentElement.style.setProperty(name, value)
+  citations.forEach((citation, index) => {
+    const card = document.createElement("div")
+    card.className = "board-source"
+    card.dataset.citationIndex = String(index)
+    card.tabIndex = -1
+
+    const copy = document.createElement("div")
+    copy.className = "board-source-copy"
+
+    const title = document.createElement("strong")
+    title.textContent = `${index + 1} · ${citation.fileName}`
+
+    const snippet = document.createElement("p")
+    snippet.textContent = citation.snippet
+
+    copy.append(title, snippet)
+    card.appendChild(copy)
+    dom.boardSources.appendChild(card)
   })
+}
 
-  syncThemeControls()
-  syncPresetState()
+/* -------------------------------------------------------------------- */
+/* settings / auth / shortcuts panels                                   */
+/* -------------------------------------------------------------------- */
 
-  if (persist) {
-    schedulePreferenceSave()
+function openSettingsPanel(section, returnFocusEl) {
+  state.lastFocusedBeforeOverlay = returnFocusEl || document.activeElement
+  showOverlay(dom.settingsOverlay)
+  document.body.classList.add("settings-open")
+  dom.settingsPanel.setAttribute("aria-hidden", "false")
+  settingsFocusRelease = trapFocus(dom.settingsPanel)
+  dom.closeSettings.focus()
+
+  if (section === "library") {
+    dom.librarySection.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    })
   }
 }
+
+function closeSettingsPanel() {
+  if (!document.body.classList.contains("settings-open")) return
+  document.body.classList.remove("settings-open")
+  dom.settingsPanel.setAttribute("aria-hidden", "true")
+  hideOverlay(dom.settingsOverlay)
+  settingsFocusRelease?.()
+  settingsFocusRelease = null
+  state.lastFocusedBeforeOverlay?.focus?.()
+}
+
+function openAuthModal(returnFocusEl) {
+  const anchor = returnFocusEl || document.activeElement
+  closeSettingsPanel()
+  state.lastFocusedBeforeOverlay = anchor
+  showOverlay(dom.authOverlay)
+  dom.authModal.hidden = false
+  dom.authModal.setAttribute("aria-hidden", "false")
+  document.body.classList.add("modal-open")
+  authFocusRelease = trapFocus(dom.authModal)
+  setAuthStatus("")
+  ;(state.authMode === "register" ? dom.authName : dom.authEmail).focus()
+}
+
+function closeAuthModal() {
+  if (dom.authModal.hidden) return
+  dom.authModal.hidden = true
+  dom.authModal.setAttribute("aria-hidden", "true")
+  document.body.classList.remove("modal-open")
+  hideOverlay(dom.authOverlay)
+  authFocusRelease?.()
+  authFocusRelease = null
+  state.lastFocusedBeforeOverlay?.focus?.()
+}
+
+function openShortcuts(returnFocusEl) {
+  state.lastFocusedBeforeOverlay = returnFocusEl || document.activeElement
+  showOverlay(dom.shortcutsOverlay)
+  dom.shortcutsSheet.hidden = false
+  dom.shortcutsSheet.setAttribute("aria-hidden", "false")
+  document.body.classList.add("modal-open")
+  shortcutsFocusRelease = trapFocus(dom.shortcutsSheet)
+  dom.closeShortcuts.focus()
+}
+
+function closeShortcuts() {
+  if (dom.shortcutsSheet.hidden) return
+  dom.shortcutsSheet.hidden = true
+  dom.shortcutsSheet.setAttribute("aria-hidden", "true")
+  document.body.classList.remove("modal-open")
+  hideOverlay(dom.shortcutsOverlay)
+  shortcutsFocusRelease?.()
+  shortcutsFocusRelease = null
+  state.lastFocusedBeforeOverlay?.focus?.()
+}
+
+async function saveProfile() {
+  const payload = {
+    name: dom.profileNameInput.value.trim(),
+    workspace: dom.profileWorkspaceInput.value.trim()
+  }
+
+  try {
+    const data = await apiJson("/workspace/profile", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    })
+
+    state.profile = normalizeProfile(data.profile, state.user)
+    renderProfile()
+    setProfileStatus("Profile saved.", "success")
+  } catch (error) {
+    setProfileStatus(
+      getErrorMessage(error, "Unable to save the profile."),
+      "error"
+    )
+  }
+}
+
+/* -------------------------------------------------------------------- */
+/* preferences                                                           */
+/* -------------------------------------------------------------------- */
 
 function applyUiPreferences(ui, persist = false) {
   state.preferences.ui = {
@@ -1798,14 +2116,19 @@ function applyUiPreferences(ui, persist = false) {
     chatMode: normalizeChatModeValue(ui?.chatMode)
   }
 
-  document.body.classList.toggle("sidebar-hidden", state.preferences.ui.sidebarHidden)
+  document.body.classList.toggle("sidebar-rail", state.preferences.ui.sidebarHidden)
   document.body.classList.toggle("board-closed", !state.preferences.ui.boardOpen)
-  dom.focusModeToggle.checked = state.preferences.ui.sidebarHidden
-  dom.boardToggle.textContent = state.preferences.ui.boardOpen ? "Board" : "Show Board"
+
+  dom.sidebarCollapseToggle.setAttribute(
+    "aria-label",
+    state.preferences.ui.sidebarHidden ? "Expand sidebar" : "Collapse sidebar"
+  )
+
   dom.boardToggle.setAttribute(
     "aria-label",
     state.preferences.ui.boardOpen ? "Hide output board" : "Show output board"
   )
+
   syncModeButtons()
 
   if (persist) {
@@ -1824,38 +2147,26 @@ async function persistPreferences() {
   await apiJson("/workspace/preferences", {
     method: "POST",
     body: JSON.stringify({
-      theme: state.preferences.theme,
       ui: state.preferences.ui
     })
   })
 }
 
 function syncModeButtons() {
-  dom.topbarModeLabel.textContent = getChatModeLabel(state.preferences.ui.chatMode)
+  const allModeButtons = [...dom.chatModeButtons, ...dom.topbarOverflowMenu.querySelectorAll("[data-chat-mode]")]
 
-  dom.modeButtons.forEach(button => {
-    button.classList.toggle(
-      "is-active",
-      normalizeChatModeValue(button.dataset.chatMode) === state.preferences.ui.chatMode
-    )
-  })
-}
+  allModeButtons.forEach(button => {
+    const active = normalizeChatModeValue(button.dataset.chatMode) === state.preferences.ui.chatMode
 
-function syncThemeControls() {
-  document.querySelectorAll("[data-theme-input]").forEach(inputEl => {
-    const key = inputEl.dataset.themeInput
-
-    if (THEME_KEYS.includes(key)) {
-      inputEl.value = state.preferences.theme[key]
+    if (button.hasAttribute("aria-pressed")) {
+      button.setAttribute("aria-pressed", active ? "true" : "false")
     }
-  })
-}
 
-function syncPresetState() {
-  document.querySelectorAll("[data-theme-preset]").forEach(button => {
-    const preset = THEME_PRESETS[button.dataset.themePreset]
-    const isActive = THEME_KEYS.every(key => preset?.[key] === state.preferences.theme[key])
-    button.classList.toggle("is-active", isActive)
+    if (button.getAttribute("role") === "menuitemradio") {
+      button.setAttribute("aria-checked", active ? "true" : "false")
+    }
+
+    button.classList.toggle("is-active", active)
   })
 }
 
@@ -1863,10 +2174,9 @@ function syncAuthMode() {
   const isRegister = state.authMode === "register"
 
   dom.authTabs.forEach(button => {
-    button.classList.toggle(
-      "is-active",
-      button.dataset.authMode === state.authMode
-    )
+    const active = button.dataset.authMode === state.authMode
+    button.classList.toggle("is-active", active)
+    button.setAttribute("aria-selected", active ? "true" : "false")
   })
 
   dom.authNameField.hidden = !isRegister
@@ -1883,9 +2193,27 @@ function getDefaultStatus() {
 }
 
 function setSendingState(active) {
-  dom.sendButton.disabled = active
   dom.attachBtn.disabled = active
   dom.libraryBtn.disabled = active
+  dom.sendButton.classList.toggle("is-stop", active)
+  dom.sendButton.setAttribute("aria-label", active ? "Stop generating" : "Send message")
+  dom.sendButton.title = active ? "Stop generating (Esc)" : "Send (⌘↵)"
+
+  const use = dom.sendButton.querySelector("use")
+  if (use) use.setAttribute("href", active ? "#icon-stop" : "#icon-send")
+
+  dom.conversationSurface.setAttribute("aria-busy", active ? "true" : "false")
+  syncSendButtonState()
+}
+
+function syncSendButtonState() {
+  if (state.sending) {
+    dom.sendButton.disabled = false
+    return
+  }
+
+  const hasContent = dom.input.value.trim().length > 0 || state.pendingAttachments.length > 0
+  dom.sendButton.disabled = !hasContent
 }
 
 function setComposerStatus(message, stateName = "neutral") {
@@ -1904,10 +2232,6 @@ function setLibraryStatus(message, stateName = "neutral") {
   setStatus(statusTargets.library, message, stateName)
 }
 
-function showTyping(visible) {
-  dom.typing.hidden = !visible
-}
-
 function scrollConversation() {
   requestAnimationFrame(() => {
     dom.conversationSurface.scrollTop = dom.conversationSurface.scrollHeight
@@ -1916,7 +2240,21 @@ function scrollConversation() {
 
 function autoresizeTextarea() {
   dom.input.style.height = "0px"
-  dom.input.style.height = `${Math.min(dom.input.scrollHeight, 220)}px`
+  dom.input.style.height = `${Math.min(dom.input.scrollHeight, 200)}px`
+}
+
+function clearConversation() {
+  dom.chat.innerHTML = ""
+  updateEmptyState()
+}
+
+function updateEmptyState() {
+  dom.emptyState.hidden = dom.chat.childElementCount > 0
+}
+
+function updateTopbar() {
+  dom.chatTitle.textContent = getCurrentSessionTitle()
+  updateWorkspaceSummary()
 }
 
 function getCurrentSessionTitle() {

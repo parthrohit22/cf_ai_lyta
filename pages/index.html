@@ -2,9 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Lyta</title>
+<link rel="preload" href="/fonts/Inter-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/Inter-Medium.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/styles.css">
+<script>
+(function () {
+  try {
+    var stored = localStorage.getItem("lyta_theme_mode")
+    var mode = stored === "light" || stored === "dark" ? stored : "system"
+    var resolved =
+      mode === "system"
+        ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+        : mode
+    document.documentElement.dataset.themeMode = mode
+    document.documentElement.dataset.theme = resolved
+  } catch (error) {}
+})()
+</script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
@@ -15,171 +31,215 @@
 </head>
 <body>
 
+<svg hidden aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+  <symbol id="icon-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></symbol>
+  <symbol id="icon-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></symbol>
+  <symbol id="icon-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></symbol>
+  <symbol id="icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+  <symbol id="icon-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <symbol id="icon-paperclip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></symbol>
+  <symbol id="icon-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></symbol>
+  <symbol id="icon-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></symbol>
+  <symbol id="icon-stop" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></symbol>
+  <symbol id="icon-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+  <symbol id="icon-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+  <symbol id="icon-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></symbol>
+  <symbol id="icon-bookmark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></symbol>
+  <symbol id="icon-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></symbol>
+</svg>
+
+<a class="skip-link" href="#composer">Skip to composer</a>
+
 <div id="appShell">
-  <aside id="sidebar">
-    <div class="sidebar-header">
+  <div id="sidebarBackdrop" class="overlay" hidden></div>
+
+  <aside id="sidebar" aria-label="Chats and files">
+    <div class="sidebar-top">
       <div class="brand-block">
-        <div class="brand-mark">LYTA</div>
-        <p class="meta-label">AI workspace</p>
+        <span class="brand-mark" aria-hidden="true">L</span>
+        <span class="brand-name">LYTA</span>
       </div>
-      <button id="newChat" class="primary-button" type="button" aria-label="Create new chat">New Chat</button>
+      <button id="sidebarCollapseToggle" class="icon-button" type="button" aria-label="Collapse sidebar" title="Collapse sidebar (⌘B)">
+        <svg class="icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg>
+      </button>
     </div>
 
-    <div class="workspace-card">
-      <div class="workspace-card-top">
-        <span id="workspaceBadge" class="status-pill">Temporary workspace</span>
-        <span id="workspaceStorageMeta">Guest</span>
+    <button id="newChat" class="primary-button full-width" type="button" aria-label="Create new chat">
+      <svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>
+      <span class="sidebar-label">New Chat</span>
+    </button>
+
+    <div class="sidebar-scroll">
+      <div class="workspace-card">
+        <div class="workspace-card-row">
+          <strong id="workspaceName">Private Workspace</strong>
+          <span id="workspaceBadge" class="status-pill">Guest</span>
+        </div>
+        <p id="workspaceSummary">0 files · 0 chats</p>
       </div>
-      <strong id="workspaceName">Private Workspace</strong>
-      <p id="workspaceSummary">0 files · 0 chats</p>
+
+      <section class="sidebar-section" aria-labelledby="sidebarLibraryTitle">
+        <div class="sidebar-heading">
+          <span class="sidebar-title" id="sidebarLibraryTitle">Library</span>
+          <button id="sidebarAddFile" class="icon-button" type="button" aria-label="Add files to library" title="Add files to library">
+            <svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>
+          </button>
+        </div>
+        <div id="sidebarLibrary" class="sidebar-library"></div>
+      </section>
+
+      <section class="sidebar-section" aria-labelledby="sidebarChatsTitle">
+        <div class="sidebar-heading">
+          <span class="sidebar-title" id="sidebarChatsTitle">Chats</span>
+          <span class="sidebar-note" id="sessionCount">0 chats</span>
+        </div>
+
+        <label class="sidebar-search">
+          <svg class="icon" aria-hidden="true"><use href="#icon-search"></use></svg>
+          <input id="sessionFilter" type="search" placeholder="Filter chats" aria-label="Filter chats">
+        </label>
+
+        <div id="sessions" role="list"></div>
+      </section>
     </div>
-
-    <section class="sidebar-section" aria-labelledby="sidebarLibraryTitle">
-      <div class="sidebar-heading">
-        <span class="sidebar-title" id="sidebarLibraryTitle">Library</span>
-        <button id="sidebarAddFile" class="icon-button" type="button" title="Add files to library" aria-label="Add files to library">+</button>
-      </div>
-      <div id="sidebarLibrary" class="sidebar-library"></div>
-    </section>
-
-    <div class="sidebar-heading">
-      <span class="sidebar-title">Chats</span>
-      <span class="sidebar-note" id="sessionCount">0 chats</span>
-    </div>
-
-    <div id="sessions"></div>
   </aside>
 
   <main id="workspace">
     <header id="topbar">
-      <div class="topbar-copy">
-        <div class="topbar-meta">
-          <span id="workspaceModeLabel">Temporary workspace</span>
-          <span id="topbarLibraryCount">0 files</span>
-          <span id="topbarModeLabel">Instant</span>
-        </div>
+      <div class="topbar-left">
+        <button id="sidebarMenuToggle" class="icon-button mobile-only" type="button" aria-label="Open chat list" title="Open chat list">
+          <svg class="icon" aria-hidden="true"><use href="#icon-menu"></use></svg>
+        </button>
         <h1 id="chatTitle">New Chat</h1>
-        <p id="topbarSubtitle">0 files · 0 chats</p>
       </div>
 
       <div class="topbar-actions">
-        <label class="switch-row" for="focusModeToggle" title="Hide or show the chat list">
-          <span>Focus</span>
-          <input id="focusModeToggle" type="checkbox">
-          <span class="switch-control" aria-hidden="true"></span>
-        </label>
+        <div id="chatModeSelector" class="mode-selector" role="group" aria-label="Response mode">
+          <button class="mode-button" type="button" data-chat-mode="instant" aria-pressed="true" title="Quick answer">Instant</button>
+          <button class="mode-button" type="button" data-chat-mode="deep" aria-pressed="false" title="Technical review">Deep</button>
+          <button class="mode-button" type="button" data-chat-mode="creative" aria-pressed="false" title="Rewrite or ideate">Creative</button>
+        </div>
 
-        <button id="boardToggle" class="secondary-button" type="button" title="Show or hide output board">Board</button>
-        <button id="resetChat" class="secondary-button" type="button" title="Clear current chat">Clear</button>
-
-        <button id="profileButton" class="profile-button" type="button" title="Open workspace settings">
-          <span class="profile-avatar" id="profileAvatar">LY</span>
-          <span class="profile-copy">
-            <strong id="profileButtonName">Profile</strong>
-            <span id="profileButtonWorkspace">Settings</span>
-          </span>
+        <button id="boardToggle" class="icon-button" type="button" aria-label="Hide output board" title="Toggle output board">
+          <svg class="icon" aria-hidden="true"><use href="#icon-bookmark"></use></svg>
         </button>
+
+        <button id="resetChat" class="icon-button" type="button" aria-label="Clear current chat" title="Clear current chat">
+          <svg class="icon" aria-hidden="true"><use href="#icon-x"></use></svg>
+        </button>
+
+        <div class="menu-wrap overflow-only">
+          <button id="topbarOverflowToggle" class="icon-button" type="button" aria-label="More actions" aria-haspopup="true" aria-expanded="false" title="More actions">
+            <svg class="icon" aria-hidden="true"><use href="#icon-more"></use></svg>
+          </button>
+          <div id="topbarOverflowMenu" class="dropdown-menu" role="menu" hidden>
+            <button class="dropdown-item" type="button" role="menuitemradio" data-chat-mode="instant">Instant</button>
+            <button class="dropdown-item" type="button" role="menuitemradio" data-chat-mode="deep">Deep</button>
+            <button class="dropdown-item" type="button" role="menuitemradio" data-chat-mode="creative">Creative</button>
+            <div class="dropdown-divider" role="separator"></div>
+            <button class="dropdown-item" type="button" role="menuitem" data-action="toggle-board">Toggle board</button>
+            <button class="dropdown-item" type="button" role="menuitem" data-action="clear-chat">Clear chat</button>
+          </div>
+        </div>
+
+        <div class="menu-wrap">
+          <button id="profileButton" class="avatar-button" type="button" aria-label="Open account menu" aria-haspopup="true" aria-expanded="false" title="Account menu">
+            <span class="profile-avatar" id="profileAvatar">LY</span>
+          </button>
+          <div id="profileMenu" class="dropdown-menu dropdown-menu-end" role="menu" hidden>
+            <div class="dropdown-header">
+              <strong id="profileMenuName">Guest User</strong>
+              <span id="profileMenuWorkspace">Private Workspace</span>
+            </div>
+            <div class="dropdown-divider" role="separator"></div>
+            <button class="dropdown-item" type="button" role="menuitem" data-action="open-settings">Settings</button>
+            <button class="dropdown-item" type="button" role="menuitem" data-action="open-shortcuts">Keyboard shortcuts</button>
+            <div class="dropdown-divider" role="separator"></div>
+            <button id="menuAuthAction" class="dropdown-item" type="button" role="menuitem" data-action="open-auth">Sign in to save</button>
+            <button id="menuLogoutAction" class="dropdown-item" type="button" role="menuitem" data-action="logout" hidden>Sign out</button>
+          </div>
+        </div>
       </div>
     </header>
 
     <div id="workspaceGrid">
       <section id="chatPanel">
-        <section id="conversationSurface">
+        <section id="conversationSurface" role="log" aria-live="polite" aria-busy="false" aria-label="Conversation">
           <div id="emptyState">
-            <div class="starter-panel">
-              <h2>Start with a file or a technical question.</h2>
-              <p>LYTA keeps reusable files, cited answers, and board-ready outputs in one workspace.</p>
+            <h2>Start with a file or a technical question.</h2>
+            <p>LYTA keeps reusable files, cited answers, and board-ready outputs in one workspace.</p>
+
+            <div class="suggestion-row">
+              <button class="suggestion-chip" type="button" data-prompt="Find risks in this architecture and cite the relevant sources.">Find risks</button>
+              <button class="suggestion-chip" type="button" data-prompt="Summarize the uploaded notes and list the important decisions.">Summarize notes</button>
+              <button class="suggestion-chip" type="button" data-prompt="Create a recruiter-ready project summary from this material.">Project summary</button>
+              <button class="suggestion-chip" type="button" data-prompt="Draft a technical design review with risks, tradeoffs, and recommendations.">Design review</button>
             </div>
-
-            <div class="starter-list">
-              <section class="starter-row">
-                <div>
-                  <h3>Add a document</h3>
-                  <p>Attach PDFs, DOCX, text files, data files, or images.</p>
-                </div>
-                <button id="emptyUploadButton" class="secondary-button" type="button">Add document</button>
-              </section>
-
-              <section class="starter-row">
-                <div>
-                  <h3>Ask about your files</h3>
-                  <p>Use citations when uploaded context is available.</p>
-                </div>
-                <div class="suggestion-row">
-                  <button class="suggestion-chip" type="button" data-prompt="Find risks in this architecture and cite the relevant sources.">Find risks</button>
-                  <button class="suggestion-chip" type="button" data-prompt="Summarize the uploaded notes and list the important decisions.">Summarize notes</button>
-                </div>
-              </section>
-
-              <section class="starter-row">
-                <div>
-                  <h3>Generate an output</h3>
-                  <p>Pin a strong response to the board for copy or download.</p>
-                </div>
-                <div class="suggestion-row">
-                  <button class="suggestion-chip" type="button" data-prompt="Create a recruiter-ready project summary from this material.">Project summary</button>
-                  <button class="suggestion-chip" type="button" data-prompt="Draft a technical design review with risks, tradeoffs, and recommendations.">Design review</button>
-                </div>
-              </section>
-            </div>
-            <div id="emptyActivity" class="activity-list" hidden></div>
           </div>
 
           <div id="chat"></div>
-
-          <div id="typing" hidden>
-            <span class="typing-dot"></span>
-            <span class="typing-dot"></span>
-            <span>Lyta is thinking</span>
-          </div>
         </section>
 
         <form id="composer">
           <input id="filePicker" type="file" multiple accept="image/*,.pdf,.docx,.txt,.md,.csv,.json,.html,.htm,.xml" hidden>
 
           <div id="composerShell">
-            <div id="attachmentTray"></div>
+            <div id="attachmentTray" aria-live="polite"></div>
+
+            <label class="composer-input" for="message">
+              <span class="visually-hidden">Message</span>
+              <textarea id="message" rows="1" placeholder="Ask Lyta to think through something real..."></textarea>
+            </label>
 
             <div class="composer-row">
-              <button id="attachBtn" class="secondary-button" type="button" title="Upload files">Upload</button>
-              <button id="libraryBtn" class="secondary-button" type="button" title="Open reusable library">Library</button>
-              <label class="composer-input" for="message">
-                <textarea id="message" rows="1" placeholder="Ask Lyta to think through something real..."></textarea>
-              </label>
-              <button id="sendButton" class="primary-button" type="submit" aria-label="Send message">Send</button>
-            </div>
-
-            <div class="composer-footer">
-              <span id="attachmentSummary">No files attached</span>
-              <div class="mode-selector" aria-label="Response mode">
-                <button class="mode-button" type="button" data-chat-mode="instant" title="Quick answer">Instant</button>
-                <button class="mode-button" type="button" data-chat-mode="deep" title="Technical review">Deep</button>
-                <button class="mode-button" type="button" data-chat-mode="creative" title="Rewrite or ideate">Creative</button>
+              <div class="composer-row-left">
+                <button id="attachBtn" class="icon-button" type="button" aria-label="Attach files" title="Attach files">
+                  <svg class="icon" aria-hidden="true"><use href="#icon-paperclip"></use></svg>
+                </button>
+                <button id="libraryBtn" class="icon-button" type="button" aria-label="Open reusable library" title="Open reusable library">
+                  <svg class="icon" aria-hidden="true"><use href="#icon-book"></use></svg>
+                </button>
               </div>
-              <span id="composerStatus">Ready.</span>
+
+              <div class="composer-row-right">
+                <span id="composerKbdHint" class="kbd-hint" aria-hidden="true"><kbd>⌘</kbd><kbd>↵</kbd></span>
+                <button id="sendButton" class="icon-button icon-button-accent" type="submit" disabled aria-label="Send message" title="Send (⌘↵)">
+                  <svg class="icon" aria-hidden="true"><use href="#icon-send"></use></svg>
+                </button>
+              </div>
             </div>
           </div>
+
+          <p id="composerStatus" class="composer-status" aria-live="polite">Ready.</p>
         </form>
       </section>
 
-      <aside id="artifactPanel">
+      <div id="boardBackdrop" class="overlay" hidden></div>
+
+      <aside id="artifactPanel" aria-label="Output board">
         <div class="panel-header">
-          <div>
+          <div class="panel-header-copy">
             <p class="meta-label">Board</p>
             <h2 id="boardTitle">Select a response</h2>
+            <p id="boardMeta" class="panel-subtitle" hidden></p>
           </div>
 
           <div class="panel-actions">
-            <button id="copyBoard" class="secondary-button" type="button">Copy</button>
-            <button id="downloadBoard" class="secondary-button" type="button">Download</button>
+            <button id="copyBoard" class="icon-button" type="button" aria-label="Copy board content" title="Copy">
+              <svg class="icon" aria-hidden="true"><use href="#icon-copy"></use></svg>
+            </button>
+            <button id="downloadBoard" class="icon-button" type="button" aria-label="Download board content" title="Download">
+              <svg class="icon" aria-hidden="true"><use href="#icon-download"></use></svg>
+            </button>
+            <button id="boardClose" class="icon-button mobile-only" type="button" aria-label="Close board" title="Close">
+              <svg class="icon" aria-hidden="true"><use href="#icon-x"></use></svg>
+            </button>
           </div>
         </div>
 
         <div id="boardState" class="panel-empty">
-          <div class="board-preview">
-            <h3>No output pinned yet.</h3>
-            <p>Pinned assistant responses appear here as a clean document with sources and export actions.</p>
-          </div>
+          <p>No output pinned yet. Pin an assistant response to see it here.</p>
         </div>
 
         <div id="boardBody" hidden></div>
@@ -189,23 +249,32 @@
   </main>
 </div>
 
-<div id="settingsOverlay" hidden></div>
+<div id="settingsOverlay" class="overlay" hidden></div>
 
-<aside id="settingsPanel" aria-hidden="true">
-  <div class="settings-header">
+<aside id="settingsPanel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" aria-hidden="true">
+  <div class="panel-header">
     <div>
       <p class="meta-label">Settings</p>
-      <h2>Workspace Settings</h2>
+      <h2 id="settingsTitle">Workspace Settings</h2>
     </div>
-    <button id="closeSettings" class="secondary-button" type="button">Close</button>
+    <button id="closeSettings" class="icon-button" type="button" aria-label="Close settings">
+      <svg class="icon" aria-hidden="true"><use href="#icon-x"></use></svg>
+    </button>
   </div>
 
   <div class="settings-body">
-    <section class="settings-section">
-      <div class="section-header">
-        <h3>Profile</h3>
-        <p id="accountHint">Guest chats and files are temporary until you sign in.</p>
+    <section class="settings-group">
+      <p class="settings-group-label">Appearance</p>
+
+      <div id="themeModeSelector" class="mode-selector full-width" role="group" aria-label="Theme">
+        <button class="mode-button" type="button" data-theme-mode="system" aria-pressed="true">System</button>
+        <button class="mode-button" type="button" data-theme-mode="light" aria-pressed="false">Light</button>
+        <button class="mode-button" type="button" data-theme-mode="dark" aria-pressed="false">Dark</button>
       </div>
+    </section>
+
+    <section class="settings-group">
+      <p class="settings-group-label">Profile</p>
 
       <label class="settings-field">
         <span>Name</span>
@@ -217,6 +286,29 @@
         <input id="profileWorkspaceInput" type="text" maxlength="50" placeholder="Workspace label">
       </label>
 
+      <div class="settings-actions">
+        <button id="saveProfile" class="primary-button" type="button">Save Profile</button>
+      </div>
+      <p id="profileStatus" class="settings-note" aria-live="polite">Guest settings last for the current session only.</p>
+    </section>
+
+    <section class="settings-group" id="librarySection">
+      <p class="settings-group-label">Library</p>
+      <p id="libraryHint" class="settings-note">Files can be reused across this session. Sign in to store them in your account.</p>
+
+      <div class="settings-actions">
+        <button id="libraryUploadButton" class="secondary-button" type="button">Add Files</button>
+      </div>
+
+      <div id="libraryStats" class="library-stats">0 saved files</div>
+      <div id="libraryList" class="library-list"></div>
+      <p id="libraryStatus" class="settings-note" aria-live="polite">Documents with readable text become searchable for citations.</p>
+    </section>
+
+    <section class="settings-group">
+      <p class="settings-group-label">Account</p>
+      <p id="accountHint" class="settings-note">Guest chats and files are temporary until you sign in.</p>
+
       <div class="profile-meta-card">
         <span class="meta-label" id="storageModeLabel">Guest Mode</span>
         <strong id="profileEmailText">Temporary session</strong>
@@ -224,98 +316,33 @@
 
       <div class="settings-actions">
         <button id="authActionButton" class="primary-button" type="button">Sign In To Save</button>
-        <button id="saveProfile" class="primary-button" type="button">Save Profile</button>
         <button id="logoutButton" class="secondary-button" type="button">Log Out</button>
       </div>
-      <p id="profileStatus" class="settings-note">Guest settings last for the current session only.</p>
-    </section>
-
-    <section class="settings-section">
-      <div class="section-header">
-        <h3>Theme</h3>
-        <p>Keep the workspace neutral; use accent color sparingly.</p>
-      </div>
-
-      <div class="theme-presets">
-        <button class="preset-button" type="button" data-theme-preset="atelier">Atelier</button>
-        <button class="preset-button" type="button" data-theme-preset="harbor">Harbor</button>
-        <button class="preset-button" type="button" data-theme-preset="linen">Linen</button>
-      </div>
-
-      <div class="theme-grid">
-        <label class="theme-control">
-          <span>Page</span>
-          <input type="color" data-theme-input="background">
-        </label>
-        <label class="theme-control">
-          <span>Sidebar</span>
-          <input type="color" data-theme-input="sidebar">
-        </label>
-        <label class="theme-control">
-          <span>Header</span>
-          <input type="color" data-theme-input="topbar">
-        </label>
-        <label class="theme-control">
-          <span>Chat</span>
-          <input type="color" data-theme-input="conversation">
-        </label>
-        <label class="theme-control">
-          <span>Composer</span>
-          <input type="color" data-theme-input="composer">
-        </label>
-        <label class="theme-control">
-          <span>Assistant</span>
-          <input type="color" data-theme-input="assistantBubble">
-        </label>
-        <label class="theme-control">
-          <span>User</span>
-          <input type="color" data-theme-input="userBubble">
-        </label>
-        <label class="theme-control">
-          <span>Accent</span>
-          <input type="color" data-theme-input="accent">
-        </label>
-      </div>
-
-      <button id="resetTheme" class="secondary-button full-width" type="button">Reset Colors</button>
-    </section>
-
-    <section class="settings-section" id="librarySection">
-      <div class="section-header">
-        <h3>Library</h3>
-        <p id="libraryHint">Files can be reused across this session. Sign in to store them in your account.</p>
-      </div>
-
-      <div class="settings-actions">
-        <button id="libraryUploadButton" class="primary-button" type="button">Add Files</button>
-      </div>
-
-      <div id="libraryStats" class="library-stats">0 saved files</div>
-      <div id="libraryList" class="library-list"></div>
-      <p id="libraryStatus" class="settings-note">Documents with readable text become searchable for citations.</p>
     </section>
   </div>
 </aside>
 
-<div id="authOverlay" hidden></div>
+<div id="authOverlay" class="overlay" hidden></div>
 
-<section id="authModal" hidden aria-hidden="true">
-  <div class="auth-card">
-    <div class="auth-header">
+<section id="authModal" role="dialog" aria-modal="true" aria-labelledby="authTitle" hidden aria-hidden="true">
+  <div class="modal-card auth-card">
+    <div class="panel-header">
       <div>
         <p class="meta-label">Account</p>
-        <h2>Save This Workspace</h2>
+        <h2 id="authTitle">Save This Workspace</h2>
       </div>
-      <button id="closeAuthModal" class="secondary-button" type="button">Close</button>
+      <button id="closeAuthModal" class="icon-button" type="button" aria-label="Close">
+        <svg class="icon" aria-hidden="true"><use href="#icon-x"></use></svg>
+      </button>
     </div>
 
     <p class="auth-copy">
       Use Lyta immediately as a guest. Sign in only when you want chats, files, and preferences stored to your account.
     </p>
 
-    <div class="auth-tabs">
-      <button type="button" class="auth-tab is-active" data-auth-mode="register">Create Account</button>
-      <button type="button" class="auth-tab" data-auth-mode="login">Sign In</button>
+    <div class="auth-tabs" role="tablist">
+      <button type="button" class="auth-tab is-active" role="tab" aria-selected="true" data-auth-mode="register">Create Account</button>
+      <button type="button" class="auth-tab" role="tab" aria-selected="false" data-auth-mode="login">Sign In</button>
     </div>
 
     <form id="authForm" class="auth-form">
@@ -334,9 +361,30 @@
         <input id="authPassword" type="password" minlength="8" autocomplete="current-password" placeholder="At least 8 characters" required>
       </label>
 
-      <button id="authSubmit" class="primary-button auth-submit" type="submit">Create Workspace</button>
-      <p id="authStatus" class="settings-note">Account storage keeps chats private to you and available after you come back.</p>
+      <button id="authSubmit" class="primary-button full-width" type="submit">Create Workspace</button>
+      <p id="authStatus" class="settings-note" aria-live="polite">Account storage keeps chats private to you and available after you come back.</p>
     </form>
+  </div>
+</section>
+
+<div id="shortcutsOverlay" class="overlay" hidden></div>
+
+<section id="shortcutsSheet" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle" hidden aria-hidden="true">
+  <div class="modal-card">
+    <div class="panel-header">
+      <h2 id="shortcutsTitle">Keyboard shortcuts</h2>
+      <button id="closeShortcuts" class="icon-button" type="button" aria-label="Close">
+        <svg class="icon" aria-hidden="true"><use href="#icon-x"></use></svg>
+      </button>
+    </div>
+
+    <dl class="shortcuts-list">
+      <div class="shortcut-row"><dt><kbd>⌘</kbd><kbd>K</kbd></dt><dd>Filter chats</dd></div>
+      <div class="shortcut-row"><dt><kbd>⌘</kbd><kbd>↵</kbd></dt><dd>Send message</dd></div>
+      <div class="shortcut-row"><dt><kbd>⌘</kbd><kbd>/</kbd></dt><dd>Show shortcuts</dd></div>
+      <div class="shortcut-row"><dt><kbd>Esc</kbd></dt><dd>Close panel</dd></div>
+      <div class="shortcut-row"><dt><kbd>⌘</kbd><kbd>B</kbd></dt><dd>Toggle sidebar</dd></div>
+    </dl>
   </div>
 </section>
 
