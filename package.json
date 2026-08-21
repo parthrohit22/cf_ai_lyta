@@ -4,6 +4,7 @@
 	"private": true,
 	"scripts": {
 		"build:client": "tsc -p tsconfig.client.json",
+		"check": "npm run build:client && npm test && tsc --noEmit && tsc -p tsconfig.client.json --noEmit && node --check pages/app-core.js && node --check pages/app.js && node --check pages/app-attachments.js && git diff --exit-code -- pages/app-core.js && npm audit --omit=dev --audit-level=high",
 		"deploy": "npm run build:client && wrangler deploy",
 		"test": "npm run build:client && tsx --test tests/**/*.test.ts",
 		"dev": "wrangler dev",
