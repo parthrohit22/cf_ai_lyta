@@ -253,10 +253,13 @@ the deploy workflow both run.
 ```bash
 npm run test:unit          # pure-function tests, no Durable Object involved
 npm run test:integration   # drive a Durable Object's fetch() against faked storage
+npm run test:eval          # scripted-model evaluation suite (eval/dataset.json)
 npm run test:smoke         # register -> upload -> chat -> stream through the real router
 ```
 
-`npm test` runs all three. Coverage areas called out in [issue #9](https://github.com/parthrohit22/lyta/issues/9):
+`npm test` runs unit, integration, and smoke (the eval suite runs as part of
+`test:integration`'s glob and separately via `test:eval` for CI visibility —
+see below). Coverage areas called out in [issue #9](https://github.com/parthrohit22/lyta/issues/9):
 
 | Area | Test file |
 | --- | --- |
@@ -270,14 +273,33 @@ npm run test:smoke         # register -> upload -> chat -> stream through the re
 | Log redaction | `tests/unit/log-redaction.test.ts` |
 | Full request pipeline | `tests/smoke/smoke.test.ts` |
 
+## Model Configuration and Evaluation
+
+`src/config/modelProfiles.ts` is the single source of truth for per-mode
+model selection: model id, version label, timeout, retry budget, fallback
+model, and documented latency/cost/quality targets for `Instant` and `Deep`
+(`Deep Review`). `src/services/ai.ts`'s `callWithPolicy()` wraps every
+Workers AI call with that timeout/retry/fallback policy and records the
+outcome as non-sensitive telemetry (model, version, retry count, fallback
+used, timed out) — never prompt or response content.
+
+`eval/dataset.json` is a versioned evaluation baseline (citation accuracy,
+insufficient-evidence compliance, cross-mode sanity checks) that CI runs on
+every PR as a pipeline-correctness regression gate. See
+[`eval/README.md`](eval/README.md) for what that suite does and doesn't
+prove, and the model-promotion policy: no model or prompt change is called
+"stronger" until it beats the documented baseline against this suite, run
+against a real model.
+
 ## CI/CD
 
 GitHub Actions runs formatting, the client build, unit tests, integration
-tests, the smoke test, TypeScript checks, browser bundle syntax checks, a
-generated-client consistency check, a production dependency audit, and a
-Worker deployment bundle validation as separate steps for every pull
-request and merge to `main` (`npm run check` runs the same gates locally
-in one command).
+tests, the evaluation suite, the smoke test, TypeScript checks, browser
+bundle syntax checks, a generated-client consistency check, a production
+dependency audit, a model/prompt configuration change report, and a Worker
+deployment bundle validation as separate steps for every pull request and
+merge to `main` (`npm run check` runs the same gates locally in one
+command).
 
 Production deployment is deliberately manual through the **Deploy production**
 workflow. Protect the repository's `production` environment with required

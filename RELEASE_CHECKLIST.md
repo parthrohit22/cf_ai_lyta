@@ -39,17 +39,27 @@ If this release adds a new Durable Object SQLite migration tag in
 
 ## 3. AI-evaluation comparison
 
-Before promoting a model or prompt change (`src/services/ai.ts`,
+Before promoting a model or prompt change (`src/config/modelProfiles.ts`,
 `src/chat/messages.ts`'s system prompts):
 
-- Run the same small, fixed set of representative prompts against the
-  current production model/prompt and the candidate.
-- Compare response quality, latency, and estimated cost
-  (`recordOperation`'s `estimatedSpendUnits` in
-  `src/utils/telemetry.ts` gives a rough proxy).
-- This is a lightweight placeholder ahead of the full cross-model
-  evaluation and promotion policy tracked in
-  [issue #16](https://github.com/parthrohit22/lyta/issues/16).
+- Run [`eval/dataset.json`](eval/dataset.json)'s cases against the current
+  production model and the candidate, following
+  [`eval/README.md`](eval/README.md#running-against-a-real-model)'s manual
+  procedure — CI's automated run of this suite (`npm run test:eval`) only
+  checks pipeline correctness against a scripted fake model, not real
+  output quality.
+- Compare citation accuracy, insufficient-evidence compliance, latency, and
+  estimated cost against `MODEL_PROFILES`' documented `targets` in
+  `src/config/modelProfiles.ts` (`recordOperation`'s `estimatedSpendUnits`
+  in `src/utils/telemetry.ts` gives a rough cost proxy).
+- Do not describe the candidate as "stronger" unless it meets or exceeds
+  the baseline on every dimension above — see `eval/README.md`'s promotion
+  policy.
+- This is a lightweight version of the full cross-model evaluation and
+  promotion policy tracked in
+  [issue #16](https://github.com/parthrohit22/lyta/issues/16), which adds
+  broader fixtures once Architecture Change Review and Drift Detection
+  ship.
 
 ## 4. Manual accessibility smoke test
 
