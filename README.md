@@ -60,6 +60,10 @@ The streaming path is hardened for demo reliability. `/chat/stream` establishes 
 6. Pin a response to the output board and copy or download it.
 7. Sign in to move from temporary guest state to a saved account workspace.
 
+Prefer not to type your own material? [`fixtures/demo-architecture-change.md`](fixtures/demo-architecture-change.md)
+is a short, clearly-fictional sample change proposal you can upload in step 3 instead — safe public
+material for demoing retrieval and citations.
+
 ## Architecture
 
 <p align="center">
@@ -231,6 +235,7 @@ swift scripts/render_asset.swift assets/architecture.svg assets/architecture.png
 ## Verification
 
 ```bash
+npm run format:check
 npm run build:client
 ./node_modules/.bin/tsc --noEmit
 ./node_modules/.bin/tsc -p tsconfig.client.json --noEmit
@@ -240,10 +245,39 @@ node --check pages/app-attachments.js
 git diff --check
 ```
 
+Or run everything at once with `npm run check` — it's the exact gate CI and
+the deploy workflow both run.
+
+## Testing
+
+```bash
+npm run test:unit          # pure-function tests, no Durable Object involved
+npm run test:integration   # drive a Durable Object's fetch() against faked storage
+npm run test:smoke         # register -> upload -> chat -> stream through the real router
+```
+
+`npm test` runs all three. Coverage areas called out in [issue #9](https://github.com/parthrohit22/lyta/issues/9):
+
+| Area | Test file |
+| --- | --- |
+| Auth/session isolation | `tests/integration/abuse-controls.test.ts` |
+| Rate limits | `tests/integration/abuse-controls.test.ts` |
+| Streaming persistence | `tests/integration/streaming-persistence.test.ts` |
+| Prompt boundaries | `tests/unit/retrieval-boundary.test.ts` |
+| File lifecycle | `tests/integration/workspace-artifacts.test.ts` |
+| Citation identity | `tests/unit/retrieval-boundary.test.ts`, `tests/integration/project-context.test.ts` |
+| History retention | `tests/integration/conversation-history.test.ts`, `tests/integration/workspace-artifacts.test.ts` |
+| Log redaction | `tests/unit/log-redaction.test.ts` |
+| Full request pipeline | `tests/smoke/smoke.test.ts` |
+
 ## CI/CD
 
-GitHub Actions runs the full `npm run check` quality gate and validates the
-Cloudflare Worker bundle for every pull request and merge to `main`.
+GitHub Actions runs formatting, the client build, unit tests, integration
+tests, the smoke test, TypeScript checks, browser bundle syntax checks, a
+generated-client consistency check, a production dependency audit, and a
+Worker deployment bundle validation as separate steps for every pull
+request and merge to `main` (`npm run check` runs the same gates locally
+in one command).
 
 Production deployment is deliberately manual through the **Deploy production**
 workflow. Protect the repository's `production` environment with required
@@ -254,6 +288,10 @@ reviewers, then add these environment secrets:
 
 The workflow never prints either value. It installs from `package-lock.json`,
 reruns the complete quality gate, and only then calls Wrangler to deploy.
+Before dispatching it, walk through [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md)
+for the things CI can't verify automatically — deployed-header verification,
+migration review, an AI-evaluation comparison, and a manual accessibility
+smoke test.
 
 ## Project Context and Provenance
 

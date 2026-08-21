@@ -32,8 +32,38 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Run quality gates
-        run: npm run check
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Build client assets
+        run: npm run build:client
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Run end-to-end smoke test
+        run: npm run test:smoke
+
+      - name: Type-check Worker source
+        run: npx tsc --noEmit
+
+      - name: Type-check client source
+        run: npx tsc -p tsconfig.client.json --noEmit
+
+      - name: Check browser bundle syntax
+        run: |
+          node --check pages/app-core.js
+          node --check pages/app.js
+          node --check pages/app-attachments.js
+
+      - name: Confirm generated client bundle is committed
+        run: git diff --exit-code -- pages/app-core.js
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Validate Worker deployment bundle
         run: npx wrangler deploy --dry-run
