@@ -287,6 +287,36 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     }), principal)
   }
 
+  if (url.pathname === "/context" && request.method === "GET") {
+    return finalizePrincipalResponse(
+      await forwardWorkspace(workspace, `/context${url.search}`),
+      principal
+    )
+  }
+
+  if (url.pathname === "/context/records" && request.method === "POST") {
+    return finalizePrincipalResponse(await forwardWorkspace(workspace, "/context/records", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: await request.text()
+    }), principal)
+  }
+
+  if (url.pathname === "/context/records/delete" && request.method === "POST") {
+    return finalizePrincipalResponse(await forwardWorkspace(workspace, "/context/records/delete", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: await request.text()
+    }), principal)
+  }
+
+  if (url.pathname === "/context/manifests" && request.method === "GET") {
+    return finalizePrincipalResponse(
+      await forwardWorkspace(workspace, `/context/manifests${url.search}`),
+      principal
+    )
+  }
+
   const sessionId =
     normalizeSessionId(url.searchParams.get("session"))
 
@@ -921,7 +951,8 @@ async function searchWorkspaceLibrary(
         headers: JSON_HEADERS,
         body: JSON.stringify({
           queryVector,
-          topK: 4
+          topK: 4,
+          requestId: typeof metadata.requestId === "string" ? metadata.requestId : undefined
         })
       })
 

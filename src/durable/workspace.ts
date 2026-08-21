@@ -4,6 +4,14 @@ import {
   buildLibrarySearchResult,
   type WorkspaceChunk
 } from "../library/chunks"
+import {
+  CONTEXT_SELECTION_POLICY_VERSION,
+  normalizeContextKind,
+  uniqueIds,
+  type ContextProvenance,
+  type ContextSelectionManifest,
+  type ProjectContextRecord
+} from "../context/projectContext"
 
 interface WorkspaceProfile {
   name: string
@@ -36,6 +44,8 @@ interface StoredLibraryFile {
   ingestionState: "ready"
   createdAt: string
   updatedAt: string
+  sourceVersionId: string
+  retention: "until-user-delete"
   attachment: {
     id?: string
     kind: "image" | "document"
@@ -139,7 +149,23 @@ export class Workspace {
     }
 
     if (path === "/library/search" && request.method === "POST") {
-      return this.searchLibrary(request)
+      return this.queue(() => this.searchLibrary(request))
+    }
+
+    if (path === "/context" && request.method === "GET") {
+      return this.getContext(request)
+    }
+
+    if (path === "/context/records" && request.method === "POST") {
+      return this.queue(() => this.upsertContextRecord(request))
+    }
+
+    if (path === "/context/records/delete" && request.method === "POST") {
+      return this.queue(() => this.deleteContextRecord(request))
+    }
+
+    if (path === "/context/manifests" && request.method === "GET") {
+      return this.getContextManifests(request)
     }
 
     return new Response("Not Found", { status: 404 })
@@ -490,6 +516,8 @@ export class Workspace {
         ingestionState: "ready",
         createdAt: now,
         updatedAt: now,
+        sourceVersionId: `source-version:${signature}`,
+        retention: "until-user-delete",
         attachment: {
           id: incoming.id,
           kind: incoming.kind,
@@ -511,11 +539,15 @@ export class Workspace {
       const matchingChunks = incomingChunks
         .filter(chunk => chunk.fileId === storedFile.signature)
         .map((chunk, index) => ({
-          id: createId("chunk"),
+          // The import pipeline derives this from the immutable source hash and
+          // index. Preserve it rather than replacing it with a random DO id.
+          id: normalizeText(chunk.id, 240) || `${storedFile.sourceVersionId}:chunk:${index}`,
           fileId: storedFile.id,
           fileName: storedFile.attachment.name,
           text: chunk.text,
-          vector: chunk.vector
+          vector: chunk.vector,
+          sourceVersionId: storedFile.sourceVersionId,
+          createdAt: now
         }))
 
       chunks.push(...matchingChunks)
@@ -559,6 +591,12 @@ export class Workspace {
       await this.env.ARTIFACTS.delete(deleted.objectKey)
     }
 
+    const deletionImpact = await this.removeContextReferences({
+      sourceFileIds: [body.id],
+      sourceVersionIds: deleted ? [deleted.sourceVersionId] : [],
+      chunkIds: chunks.filter(chunk => chunk.fileId === body.id).map(chunk => chunk.id)
+    })
+
     await this.state.storage.put(
       "library",
       library.filter(file => file.id !== body.id)
@@ -569,7 +607,7 @@ export class Workspace {
       chunks.filter(chunk => chunk.fileId !== body.id)
     )
 
-    return Response.json({ ok: true })
+    return Response.json({ ok: true, deletionImpact })
   }
 
   private async workspaceScope() {
@@ -584,7 +622,7 @@ export class Workspace {
     const stored =
       (await this.state.storage.get<LegacyStoredLibraryFile[]>("library")) || []
 
-    if (!stored.some(file => !file.ingestionState || !file.objectKey || !file.contentHash)) {
+    if (!stored.some(file => !file.ingestionState || !file.objectKey || !file.contentHash || !file.sourceVersionId || !file.retention)) {
       return stored as StoredLibraryFile[]
     }
 
@@ -593,7 +631,11 @@ export class Workspace {
 
     for (const file of stored) {
       if (file.ingestionState && file.objectKey && file.contentHash) {
-        migrated.push(file as StoredLibraryFile)
+        migrated.push({
+          ...(file as StoredLibraryFile),
+          sourceVersionId: file.sourceVersionId || `source-version:${file.signature || file.id}`,
+          retention: "until-user-delete"
+        })
         continue
       }
 
@@ -626,6 +668,8 @@ export class Workspace {
         ingestionState: "ready",
         createdAt: file.createdAt || new Date().toISOString(),
         updatedAt: file.updatedAt || new Date().toISOString(),
+        sourceVersionId: `source-version:${signature}`,
+        retention: "until-user-delete",
         attachment: metadata
       })
     }
@@ -638,6 +682,8 @@ export class Workspace {
     const body = await request.json() as {
       queryVector?: number[]
       topK?: number
+      requestId?: string
+      policyVersion?: string
     }
 
     const queryVector = Array.isArray(body.queryVector)
@@ -660,7 +706,148 @@ export class Workspace {
       typeof body.topK === "number" ? body.topK : 4
     )
 
+    await this.recordContextManifest({
+      requestId: normalizeText(body.requestId, 120) || createId("context-request"),
+      policyVersion: normalizeText(body.policyVersion, 80) || CONTEXT_SELECTION_POLICY_VERSION,
+      citations: result.citations
+    })
+
     return Response.json(result)
+  }
+
+  private async getContext(request: Request) {
+    const url = new URL(request.url)
+    const includeContent = url.searchParams.get("includeContent") === "true"
+    const records = await this.loadContextRecords()
+    const library = await this.loadLibrary()
+
+    return Response.json({
+      sources: library.map(toContextSource),
+      records: records.map(record => includeContent ? record : toContextRecordMetadata(record))
+    })
+  }
+
+  private async getContextManifests(request: Request) {
+    const url = new URL(request.url)
+    const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit")) || 30, 100))
+    const manifests = await this.loadContextManifests()
+    return Response.json({ manifests: manifests.slice(0, limit) })
+  }
+
+  private async upsertContextRecord(request: Request) {
+    const body = await request.json() as Partial<ProjectContextRecord> & {
+      provenance?: Partial<ContextProvenance>
+    }
+    const kind = normalizeContextKind(body.kind)
+    const title = normalizeText(body.title, 160)
+    const content = normalizeTextBlock(body.content, 12_000)
+
+    if (!kind || !title || !content) {
+      return new Response("A context kind, title, and content are required", { status: 400 })
+    }
+
+    const scope = await this.workspaceScope()
+    const records = await this.loadContextRecords()
+    const library = await this.loadLibrary()
+    const chunks = (await this.state.storage.get<WorkspaceChunk[]>("libraryChunks")) || []
+    const fileIds = new Set(library.map(file => file.id))
+    const sourceVersionIds = new Set(library.map(file => file.sourceVersionId))
+    const chunkIds = new Set(chunks.map(chunk => chunk.id))
+    const now = new Date().toISOString()
+    const existing = records.find(record => record.id === normalizeText(body.id, 180))
+    const record: ProjectContextRecord = {
+      id: existing?.id || createId(`context-${kind}`),
+      kind,
+      title,
+      content,
+      workspaceScope: scope,
+      provenance: {
+        createdBy: "user",
+        sourceFileIds: uniqueIds(body.provenance?.sourceFileIds).filter(id => fileIds.has(id)),
+        sourceVersionIds: uniqueIds(body.provenance?.sourceVersionIds).filter(id => sourceVersionIds.has(id)),
+        chunkIds: uniqueIds(body.provenance?.chunkIds).filter(id => chunkIds.has(id))
+      },
+      approval: kind === "summary" ? "user-approved" : "not-required",
+      retention: "until-user-delete",
+      createdAt: existing?.createdAt || now,
+      updatedAt: now
+    }
+
+    await this.state.storage.put(
+      "projectContextRecords",
+      [record, ...records.filter(candidate => candidate.id !== record.id)].slice(0, 200)
+    )
+    return Response.json({ record: toContextRecordMetadata(record) })
+  }
+
+  private async deleteContextRecord(request: Request) {
+    const body = await request.json() as { id?: string }
+    const id = normalizeText(body.id, 180)
+    if (!id) return new Response("Invalid context record", { status: 400 })
+
+    const records = await this.loadContextRecords()
+    const exists = records.some(record => record.id === id)
+    await this.state.storage.put(
+      "projectContextRecords",
+      records.filter(record => record.id !== id)
+    )
+    return Response.json({ ok: true, deleted: exists })
+  }
+
+  private async removeContextReferences(provenance: Partial<ContextProvenance>) {
+    const sourceFileIds = new Set(provenance.sourceFileIds || [])
+    const sourceVersionIds = new Set(provenance.sourceVersionIds || [])
+    const chunkIds = new Set(provenance.chunkIds || [])
+    const records = await this.loadContextRecords()
+    const affectedRecords = records.filter(record =>
+      record.provenance.sourceFileIds.some(id => sourceFileIds.has(id)) ||
+      record.provenance.sourceVersionIds.some(id => sourceVersionIds.has(id)) ||
+      record.provenance.chunkIds.some(id => chunkIds.has(id))
+    )
+
+    // Deleting a source invalidates derived records. This avoids surfacing a
+    // finding or decision whose supporting evidence is no longer available.
+    await this.state.storage.put(
+      "projectContextRecords",
+      records.filter(record => !affectedRecords.includes(record))
+    )
+    // Manifests are immutable audit evidence. They contain IDs only, so keeping
+    // them records what a previous request received without retaining content.
+    return { removedDerivedRecords: affectedRecords.length }
+  }
+
+  private async recordContextManifest(input: {
+    requestId: string
+    policyVersion: string
+    citations: Array<{ id: string; fileId: string }>
+  }) {
+    const library = await this.loadLibrary()
+    const sourceFileIds = uniqueIds(input.citations.map(citation => citation.fileId))
+    const sourceVersionIds = sourceFileIds.map(fileId =>
+      library.find(file => file.id === fileId)?.sourceVersionId
+    ).filter((value): value is string => Boolean(value))
+    const manifest: ContextSelectionManifest = {
+      id: createId("context-manifest"),
+      workspaceScope: await this.workspaceScope(),
+      requestId: input.requestId,
+      policyVersion: input.policyVersion,
+      selectedSourceFileIds: sourceFileIds,
+      selectedSourceVersionIds: uniqueIds(sourceVersionIds),
+      selectedChunkIds: uniqueIds(input.citations.map(citation => citation.id)),
+      selectedContextRecordIds: [],
+      createdAt: new Date().toISOString()
+    }
+    const manifests = await this.loadContextManifests()
+    manifests.unshift(manifest)
+    await this.state.storage.put("contextSelectionManifests", manifests.slice(0, 200))
+  }
+
+  private async loadContextRecords() {
+    return (await this.state.storage.get<ProjectContextRecord[]>("projectContextRecords")) || []
+  }
+
+  private async loadContextManifests() {
+    return (await this.state.storage.get<ContextSelectionManifest[]>("contextSelectionManifests")) || []
   }
 }
 
@@ -673,6 +860,10 @@ function normalizeText(value: unknown, maxLength: number) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength)
+}
+
+function normalizeTextBlock(value: unknown, maxLength: number) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : ""
 }
 
 function sanitizeTheme(theme: Record<string, string>) {
@@ -694,6 +885,24 @@ function toLibraryClientFile(file: StoredLibraryFile) {
     updatedAt: file.updatedAt,
     ...file.attachment
   }
+}
+
+function toContextSource(file: StoredLibraryFile) {
+  const { id: _attachmentId, ...attachment } = file.attachment
+  return {
+    id: file.id,
+    sourceVersionId: file.sourceVersionId,
+    workspaceScope: file.workspaceScope,
+    retention: file.retention,
+    createdAt: file.createdAt,
+    updatedAt: file.updatedAt,
+    ...attachment
+  }
+}
+
+function toContextRecordMetadata(record: ProjectContextRecord) {
+  const { content: _content, ...metadata } = record
+  return metadata
 }
 
 function sortSessions(sessions: WorkspaceSession[]) {
