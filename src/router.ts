@@ -488,6 +488,7 @@ async function handleAuth(
         headers: JSON_HEADERS,
         body: JSON.stringify({
           email: data.user.email,
+          scope: data.user.id,
           name: normalizeProfileName(body.name, data.user.email),
           workspace: normalizeWorkspaceName(body.workspace, body.name, data.user.email)
         })
@@ -613,6 +614,7 @@ async function ensureWorkspaceInitialized(
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify({
+      scope: user.id,
       email: user.email || "",
       name: user.isGuest ? "Guest" : normalizeProfileName(undefined, user.email),
       workspace: user.isGuest ? "Temporary Workspace" : normalizeWorkspaceName(undefined, undefined, user.email)
@@ -705,6 +707,18 @@ async function importAttachmentsIntoLibrary(
 
   if (!freshAttachments.length) {
     return []
+  }
+
+  const quotaResponse = await workspace.fetch("https://internal/library/quota", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      files: freshAttachments.map(attachment => ({ size: attachment.size }))
+    })
+  })
+
+  if (!quotaResponse.ok) {
+    throw new Error("Workspace artifact quota exceeded.")
   }
 
   const files: Array<ChatAttachment & { signature: string }> = []

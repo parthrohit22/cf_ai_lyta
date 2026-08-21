@@ -1,4 +1,5 @@
 import { createId } from "../auth/crypto"
+import type { Env } from "../index"
 import {
   buildLibrarySearchResult,
   type WorkspaceChunk
@@ -29,6 +30,10 @@ interface WorkspaceSession {
 interface StoredLibraryFile {
   id: string
   signature: string
+  contentHash: string
+  workspaceScope: string
+  objectKey: string
+  ingestionState: "ready"
   createdAt: string
   updatedAt: string
   attachment: {
@@ -38,22 +43,31 @@ interface StoredLibraryFile {
     mimeType: string
     size: number
     summary?: string
-    dataUrl?: string
-    extractedText?: string
   }
+}
+
+type IncomingLibraryAttachment = StoredLibraryFile["attachment"] & {
+  signature?: string
+  dataUrl?: string
+  extractedText?: string
 }
 
 const MAX_SESSIONS = 80
 const MAX_LIBRARY_FILES = 40
 const MAX_LIBRARY_CHUNKS = 300
+const MAX_ARTIFACT_BYTES = 2_400_000
+const MAX_WORKSPACE_ARTIFACT_BYTES = 12_000_000
+const LIBRARY_PAGE_SIZE = 20
 
 export class Workspace {
 
   state: DurableObjectState
+  env: Env
   private lock: Promise<void> = Promise.resolve()
 
-  constructor(state: DurableObjectState){
+  constructor(state: DurableObjectState, env: Env){
     this.state = state
+    this.env = env
   }
 
   async fetch(request: Request): Promise<Response>{
@@ -100,11 +114,15 @@ export class Workspace {
     }
 
     if (path === "/library" && request.method === "GET") {
-      return this.getLibrary()
+      return this.getLibrary(request)
     }
 
     if (path === "/library/upsert" && request.method === "POST") {
       return this.queue(() => this.upsertLibrary(request))
+    }
+
+    if (path === "/library/quota" && request.method === "POST") {
+      return this.checkLibraryQuota(request)
     }
 
     if (path === "/library/delete" && request.method === "POST") {
@@ -129,6 +147,7 @@ export class Workspace {
       name?: string
       workspace?: string
       email?: string
+      scope?: string
     }
 
     const profile =
@@ -143,6 +162,11 @@ export class Workspace {
       workspace: normalizeText(body.workspace, 50) || "Private Workspace",
       email: normalizeText(body.email, 120)
     } satisfies WorkspaceProfile)
+
+    await this.state.storage.put(
+      "workspaceScope",
+      normalizeText(body.scope, 120) || "legacy"
+    )
 
     await this.state.storage.put("preferences", {
       theme: {},
@@ -181,7 +205,10 @@ export class Workspace {
       profile,
       preferences,
       sessions,
-      library: library.map(toLibraryClientFile)
+      library: library.slice(0, LIBRARY_PAGE_SIZE).map(toLibraryClientFile),
+      libraryPage: {
+        nextCursor: library.length > LIBRARY_PAGE_SIZE ? String(LIBRARY_PAGE_SIZE) : null
+      }
     })
   }
 
@@ -363,18 +390,46 @@ export class Workspace {
     })
   }
 
-  private async getLibrary() {
+  private async getLibrary(request: Request) {
     const files =
       (await this.state.storage.get<StoredLibraryFile[]>("library")) || []
+    const url = new URL(request.url)
+    const offset = Math.max(0, Number.parseInt(url.searchParams.get("cursor") || "0", 10) || 0)
+    const limit = Math.min(
+      LIBRARY_PAGE_SIZE,
+      Math.max(1, Number.parseInt(url.searchParams.get("limit") || String(LIBRARY_PAGE_SIZE), 10) || LIBRARY_PAGE_SIZE)
+    )
+    const page = files.slice(offset, offset + limit)
 
     return Response.json({
-      files: files.map(toLibraryClientFile)
+      files: page.map(toLibraryClientFile),
+      nextCursor: offset + page.length < files.length ? String(offset + page.length) : null
     })
+  }
+
+  private async checkLibraryQuota(request: Request) {
+    const body = await request.json() as { files?: Array<{ size?: number }> }
+    const incoming = Array.isArray(body.files) ? body.files : []
+    const incomingBytes = incoming.reduce((total, file) => total + (
+      Number.isFinite(file?.size) ? Math.max(0, Number(file.size)) : 0
+    ), 0)
+    const library =
+      (await this.state.storage.get<StoredLibraryFile[]>("library")) || []
+    const usedBytes = library.reduce((total, file) => total + file.attachment.size, 0)
+
+    if (
+      incoming.some(file => Number(file?.size) > MAX_ARTIFACT_BYTES) ||
+      usedBytes + incomingBytes > MAX_WORKSPACE_ARTIFACT_BYTES
+    ) {
+      return new Response("Workspace artifact quota exceeded", { status: 413 })
+    }
+
+    return Response.json({ ok: true, remainingBytes: MAX_WORKSPACE_ARTIFACT_BYTES - usedBytes - incomingBytes })
   }
 
   private async upsertLibrary(request: Request) {
     const body = await request.json() as {
-      files?: Array<StoredLibraryFile["attachment"] & { signature?: string }>
+      files?: IncomingLibraryAttachment[]
       chunks?: WorkspaceChunk[]
     }
 
@@ -400,17 +455,28 @@ export class Workspace {
 
       if (existing) {
         existing.updatedAt = now
-        existing.attachment = {
-          ...existing.attachment,
-          ...incoming
-        }
         storedFiles.push(existing)
         continue
       }
 
+      const id = createId("file")
+      const objectKey = `workspaces/${await this.workspaceScope()}/artifacts/${id}/${signature}`
+      await this.env.ARTIFACTS.put(
+        objectKey,
+        JSON.stringify({
+          dataUrl: incoming.kind === "image" ? incoming.dataUrl || "" : undefined,
+          extractedText: incoming.kind === "document" ? incoming.extractedText || "" : undefined
+        }),
+        { httpMetadata: { contentType: "application/json" } }
+      )
+
       const next: StoredLibraryFile = {
-        id: createId("file"),
+        id,
         signature,
+        contentHash: signature,
+        workspaceScope: await this.workspaceScope(),
+        objectKey,
+        ingestionState: "ready",
         createdAt: now,
         updatedAt: now,
         attachment: {
@@ -420,12 +486,7 @@ export class Workspace {
           mimeType:
             normalizeText(incoming.mimeType, 120) || "application/octet-stream",
           size: Number.isFinite(incoming.size) ? incoming.size : 0,
-          summary: normalizeText(incoming.summary, 280),
-          dataUrl: typeof incoming.dataUrl === "string" ? incoming.dataUrl : undefined,
-          extractedText:
-            typeof incoming.extractedText === "string"
-              ? incoming.extractedText
-              : undefined
+          summary: normalizeText(incoming.summary, 280)
         }
       }
 
@@ -482,6 +543,12 @@ export class Workspace {
     const chunks =
       (await this.state.storage.get<WorkspaceChunk[]>("libraryChunks")) || []
 
+    const deleted = library.find(file => file.id === body.id)
+
+    if (deleted) {
+      await this.env.ARTIFACTS.delete(deleted.objectKey)
+    }
+
     await this.state.storage.put(
       "library",
       library.filter(file => file.id !== body.id)
@@ -493,6 +560,10 @@ export class Workspace {
     )
 
     return Response.json({ ok: true })
+  }
+
+  private async workspaceScope() {
+    return (await this.state.storage.get<string>("workspaceScope")) || "legacy"
   }
 
   private async searchLibrary(request: Request) {
