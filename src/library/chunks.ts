@@ -77,26 +77,20 @@ export function buildLibrarySearchResult(
   }
 
   const scored = searchVectors(queryVector, chunks, topK)
-  const citations = scored.map((result, index) => {
-    const chunk = chunks.find(candidate => candidate.text === result.text)
-
-    if (!chunk) {
-      return null
-    }
-
+  const citations = scored.map((chunk, index) => {
     return {
-      id: `source-${index + 1}`,
+      id: chunk.id,
       label: `Source ${index + 1}`,
       fileId: chunk.fileId,
       fileName: chunk.fileName,
       snippet: chunk.text.slice(0, 260)
     }
-  }).filter(Boolean) as LibraryCitation[]
+  }) as LibraryCitation[]
 
   return {
     context: citations
       .map(citation => {
-        return `[${citation.label}] ${citation.fileName}\n${citation.snippet}`
+        return `<lyta-source id="${citation.id}" file="${citation.fileName}">\n${citation.snippet}\n</lyta-source>`
       })
       .join("\n\n"),
     citations

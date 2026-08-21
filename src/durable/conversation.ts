@@ -132,6 +132,8 @@ export class Conversation {
     const citations =
       normalizeLibraryCitations(rawBody.citations)
 
+    const evidenceStatus = citations.length ? "available" : "insufficient"
+
     const userId =
       normalizeScopedId(rawBody.userId)
 
@@ -209,6 +211,7 @@ export class Conversation {
         recent,
         userMessage,
         citations,
+        evidenceStatus,
         title: title || "New Chat",
         userId,
         sessionId,
@@ -265,6 +268,7 @@ export class Conversation {
         title: title || "New Chat",
         citations,
         followups,
+        evidenceStatus,
         requestId
       },
       {
@@ -282,6 +286,7 @@ export class Conversation {
     recent: ChatMessageRecord[]
     userMessage: ChatMessageRecord
     citations: ReturnType<typeof normalizeLibraryCitations>
+    evidenceStatus: "available" | "insufficient"
     title: string
     userId: string
     sessionId: string
@@ -373,7 +378,8 @@ export class Conversation {
             meta: true,
             title: input.title,
             citations: input.citations,
-            followups
+            followups,
+            evidenceStatus: input.evidenceStatus
           })
         )
 

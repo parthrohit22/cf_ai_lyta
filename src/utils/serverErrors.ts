@@ -1,5 +1,18 @@
 const MAX_ERROR_MESSAGE_LENGTH = 240
 const MAX_LOG_VALUE_LENGTH = 120
+const SAFE_METADATA_KEYS = new Set([
+  "requestId",
+  "route",
+  "mode",
+  "attachmentCount",
+  "principalType",
+  "workspacePrefix",
+  "sessionPrefix",
+  "userPrefix",
+  "status",
+  "chunkCount",
+  "retrievalAttempted"
+])
 
 export function getSafeErrorMessage(
   error: unknown,
@@ -56,7 +69,7 @@ export function scopedPrefix(value: string | undefined) {
 function sanitizeMetadata(metadata: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(metadata)
-      .filter(([, value]) => value != null)
+      .filter(([key, value]) => SAFE_METADATA_KEYS.has(key) && value != null)
       .map(([key, value]) => [key, sanitizeValue(value)])
   )
 }

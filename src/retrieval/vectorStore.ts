@@ -1,4 +1,5 @@
 type VectorDoc = {
+  id?: string
   text: string
   vector: number[]
 }
@@ -17,13 +18,13 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(magA) * Math.sqrt(magB))
 }
 
-export function searchVectors(
+export function searchVectors<T extends VectorDoc>(
   queryVector: number[],
-  documents: VectorDoc[],
+  documents: T[],
   topK: number = 2
 ) {
   const scored = documents.map((doc) => ({
-    text: doc.text,
+    ...doc,
     score: cosineSimilarity(queryVector, doc.vector)
   }))
 
