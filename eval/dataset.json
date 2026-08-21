@@ -1,0 +1,180 @@
+{
+  "version": "2026-08-21.1",
+  "baselinePassRate": 1.0,
+  "cases": [
+    {
+      "id": "citation-001",
+      "category": "citation-accuracy",
+      "mode": "instant",
+      "sourceDocument": {
+        "name": "rollback-procedure.txt",
+        "text": "If a production deploy fails health checks within 5 minutes, the on-call engineer runs `deploy rollback` to restore the previous release and files an incident."
+      },
+      "question": "What's the rollback procedure if a deploy fails?",
+      "modelReply": "If a deploy fails health checks within 5 minutes, the on-call engineer runs `deploy rollback` to restore the previous release and files an incident.",
+      "expectCitation": true
+    },
+    {
+      "id": "citation-002",
+      "category": "citation-accuracy",
+      "mode": "instant",
+      "sourceDocument": {
+        "name": "migration-review-policy.txt",
+        "text": "Every database migration requires review from a second engineer and a documented rollback plan before it can be applied to production."
+      },
+      "question": "How should database migrations be reviewed?",
+      "modelReply": "Every migration needs review from a second engineer plus a documented rollback plan before it goes to production.",
+      "expectCitation": true
+    },
+    {
+      "id": "citation-003",
+      "category": "citation-accuracy",
+      "mode": "deep",
+      "sourceDocument": {
+        "name": "oncall-escalation.txt",
+        "text": "The primary on-call engineer is paged first for any P1 incident. If they don't acknowledge within 5 minutes, the secondary on-call and the engineering manager are paged together."
+      },
+      "question": "Who gets paged first during a P1 incident, and what happens if they don't respond?",
+      "modelReply": "The primary on-call engineer is paged first. If there's no acknowledgment within 5 minutes, the secondary on-call and the engineering manager are paged together.",
+      "expectCitation": true
+    },
+    {
+      "id": "citation-004",
+      "category": "citation-accuracy",
+      "mode": "instant",
+      "sourceDocument": {
+        "name": "api-rate-limits.txt",
+        "text": "The public API enforces a default rate limit of 120 requests per minute per API key, returned as a 429 with a Retry-After header when exceeded."
+      },
+      "question": "What's the default rate limit for the public API?",
+      "modelReply": "The public API's default rate limit is 120 requests per minute per API key; exceeding it returns a 429 with a Retry-After header.",
+      "expectCitation": true
+    },
+    {
+      "id": "citation-005",
+      "category": "citation-accuracy",
+      "mode": "deep",
+      "sourceDocument": {
+        "name": "cache-invalidation.txt",
+        "text": "The service uses write-through caching with a 60-second TTL, and invalidates affected cache keys explicitly on every write rather than relying on TTL expiry alone."
+      },
+      "question": "What cache invalidation strategy does the service use?",
+      "modelReply": "It uses write-through caching with a 60-second TTL, and explicitly invalidates affected keys on every write instead of relying only on TTL expiry.",
+      "expectCitation": true
+    },
+    {
+      "id": "citation-006",
+      "category": "citation-accuracy",
+      "mode": "instant",
+      "sourceDocument": {
+        "name": "security-review-checklist.txt",
+        "text": "Before merge, a security review must confirm: no secrets in the diff, input validation at trust boundaries, and that new dependencies passed a license and vulnerability check."
+      },
+      "question": "What must a security review confirm before merge?",
+      "modelReply": "Before merge, it must confirm there are no secrets in the diff, input validation exists at trust boundaries, and new dependencies passed a license and vulnerability check.",
+      "expectCitation": true
+    },
+    {
+      "id": "insufficient-001",
+      "category": "insufficient-evidence",
+      "mode": "instant",
+      "sourceDocument": null,
+      "question": "What is the team's policy on using quantum computing for load balancing?",
+      "modelReply": "Insufficient evidence in the retrieved sources.",
+      "expectCitation": false,
+      "mustContainPhrase": "Insufficient evidence in the retrieved sources."
+    },
+    {
+      "id": "insufficient-002",
+      "category": "insufficient-evidence",
+      "mode": "instant",
+      "sourceDocument": null,
+      "question": "What did the CFO say about Q3 budget allocations for the mobile team?",
+      "modelReply": "Insufficient evidence in the retrieved sources.",
+      "expectCitation": false,
+      "mustContainPhrase": "Insufficient evidence in the retrieved sources."
+    },
+    {
+      "id": "insufficient-003",
+      "category": "insufficient-evidence",
+      "mode": "deep",
+      "sourceDocument": null,
+      "question": "What's documented about the legacy mainframe migration timeline?",
+      "modelReply": "Insufficient evidence in the retrieved sources.",
+      "expectCitation": false,
+      "mustContainPhrase": "Insufficient evidence in the retrieved sources."
+    },
+    {
+      "id": "insufficient-004",
+      "category": "insufficient-evidence",
+      "mode": "instant",
+      "sourceDocument": null,
+      "question": "What SLA does the vendor contract guarantee for support tickets?",
+      "modelReply": "Insufficient evidence in the retrieved sources.",
+      "expectCitation": false,
+      "mustContainPhrase": "Insufficient evidence in the retrieved sources."
+    },
+    {
+      "id": "insufficient-005",
+      "category": "insufficient-evidence",
+      "mode": "deep",
+      "sourceDocument": null,
+      "question": "What's the approved process for offshoring the payments team?",
+      "modelReply": "Insufficient evidence in the retrieved sources.",
+      "expectCitation": false,
+      "mustContainPhrase": "Insufficient evidence in the retrieved sources."
+    },
+    {
+      "id": "insufficient-006",
+      "category": "insufficient-evidence",
+      "mode": "instant",
+      "sourceDocument": null,
+      "question": "What does the architecture doc say about GDPR data residency requirements?",
+      "modelReply": "Insufficient evidence in the retrieved sources.",
+      "expectCitation": false,
+      "mustContainPhrase": "Insufficient evidence in the retrieved sources."
+    },
+    {
+      "id": "general-001",
+      "category": "general-quality",
+      "mode": "instant",
+      "sourceDocument": {
+        "name": "onboarding-summary.txt",
+        "text": "New hires receive a laptop, a Slack invite, and a 30-minute buddy call scheduled in their first week."
+      },
+      "question": "Summarize this document in one sentence.",
+      "modelReply": "New hires get a laptop, a Slack invite, and a 30-minute buddy call in their first week.",
+      "expectCitation": true
+    },
+    {
+      "id": "general-002",
+      "category": "general-quality",
+      "mode": "deep",
+      "sourceDocument": null,
+      "question": "What storage does LYTA use for conversation state?",
+      "modelReply": "LYTA uses Durable Objects to store conversation state and session memory.",
+      "expectCitation": false
+    },
+    {
+      "id": "general-003",
+      "category": "general-quality",
+      "mode": "creative",
+      "sourceDocument": null,
+      "question": "Suggest three creative names for a feature that summarizes uploaded documents.",
+      "modelReply": "A few options: DocDigest, Brief Room, and Signal Summary.",
+      "expectCitation": false
+    },
+    {
+      "id": "general-004",
+      "category": "general-quality",
+      "mode": "deep",
+      "sourceDocument": {
+        "name": "escalation-backup-contact.txt",
+        "text": "If the primary incident contact is unavailable for 10 minutes, the backup contact listed in the on-call rotation takes over as incident commander."
+      },
+      "question": "What's the escalation path if the primary contact is unavailable?",
+      "modelReply": "If the primary contact is unavailable for 10 minutes, the backup contact from the on-call rotation takes over as incident commander.",
+      "expectCitation": true
+    }
+  ]
+}

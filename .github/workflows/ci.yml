@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -44,8 +46,24 @@ jobs:
       - name: Run integration tests
         run: npm run test:integration
 
+      - name: Run evaluation suite
+        run: npm run test:eval
+
       - name: Run end-to-end smoke test
         run: npm run test:smoke
+
+      - name: Report model/prompt configuration changes
+        run: |
+          if ! git rev-parse --verify --quiet origin/main >/dev/null; then
+            echo "origin/main not resolvable in this context; skipping the config-delta report."
+            exit 0
+          fi
+          if git diff --quiet origin/main...HEAD -- src/config/modelProfiles.ts; then
+            echo "No changes to src/config/modelProfiles.ts in this change set."
+          else
+            echo "Model/prompt configuration changed — review these target deltas before merging:"
+            git diff origin/main...HEAD -- src/config/modelProfiles.ts
+          fi
 
       - name: Type-check Worker source
         run: npx tsc --noEmit
