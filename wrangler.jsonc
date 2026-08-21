@@ -16,6 +16,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["AuthDirectory", "Workspace"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["RateLimiter"]
     }
   ],
 
@@ -36,6 +40,10 @@
       {
         "name": "WORKSPACE",
         "class_name": "Workspace"
+      },
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "RateLimiter"
       }
     ]
   },

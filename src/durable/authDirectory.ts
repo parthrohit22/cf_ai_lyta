@@ -33,6 +33,7 @@ export class AuthDirectory {
   }
 
   async fetch(request: Request): Promise<Response>{
+    await this.migrateLegacyRecords()
     const path = new URL(request.url).pathname
 
     if (path === "/register" && request.method === "POST") {
@@ -97,10 +98,7 @@ export class AuthDirectory {
       )
     }
 
-    const usersByEmail =
-      (await this.state.storage.get<Record<string, AuthUserRecord>>("usersByEmail")) || {}
-
-    if (usersByEmail[email]) {
+    if (await this.state.storage.get<AuthUserRecord>(userKey(email))) {
       return new Response("Account already exists", { status: 409 })
     }
 
@@ -115,9 +113,7 @@ export class AuthDirectory {
       createdAt: new Date().toISOString()
     }
 
-    usersByEmail[email] = user
-
-    await this.state.storage.put("usersByEmail", usersByEmail)
+    await this.state.storage.put(userKey(email), user)
 
     const authSession = await this.createSession(user)
 
@@ -147,10 +143,7 @@ export class AuthDirectory {
       })
     }
 
-    const usersByEmail =
-      (await this.state.storage.get<Record<string, AuthUserRecord>>("usersByEmail")) || {}
-
-    const user = usersByEmail[email]
+    const user = await this.state.storage.get<AuthUserRecord>(userKey(email))
 
     if (!user) {
       return new Response("Invalid email or password", { status: 401 })
@@ -186,18 +179,14 @@ export class AuthDirectory {
     }
 
     const tokenHash = await hashToken(body.token)
-    const sessions =
-      (await this.state.storage.get<Record<string, AuthSessionRecord>>("sessions")) || {}
-
-    const session = sessions[tokenHash]
+    const session = await this.state.storage.get<AuthSessionRecord>(sessionKey(tokenHash))
 
     if (!session) {
       return new Response("Unauthorized", { status: 401 })
     }
 
     if (new Date(session.expiresAt).getTime() <= Date.now()) {
-      delete sessions[tokenHash]
-      await this.state.storage.put("sessions", sessions)
+      await this.state.storage.delete(sessionKey(tokenHash))
       return new Response("Unauthorized", { status: 401 })
     }
 
@@ -219,11 +208,7 @@ export class AuthDirectory {
     }
 
     const tokenHash = await hashToken(body.token)
-    const sessions =
-      (await this.state.storage.get<Record<string, AuthSessionRecord>>("sessions")) || {}
-
-    delete sessions[tokenHash]
-    await this.state.storage.put("sessions", sessions)
+    await this.state.storage.delete(sessionKey(tokenHash))
 
     return Response.json({ ok: true })
   }
@@ -231,25 +216,59 @@ export class AuthDirectory {
   private async createSession(user: AuthUserRecord) {
     const token = createSessionToken()
     const tokenHash = await hashToken(token)
-    const sessions =
-      (await this.state.storage.get<Record<string, AuthSessionRecord>>("sessions")) || {}
-
     const now = Date.now()
-
-    sessions[tokenHash] = {
+    const session = {
       userId: user.id,
       email: user.email,
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + SESSION_TTL_MS).toISOString()
     }
 
-    await this.state.storage.put("sessions", sessions)
+    await this.state.storage.put(sessionKey(tokenHash), session)
+    await this.state.storage.setAlarm(now + SESSION_TTL_MS)
 
     return {
       token
     }
   }
+
+  async alarm() {
+    const sessions = await this.state.storage.list<AuthSessionRecord>({ prefix: "session:" })
+    const now = Date.now()
+    let nextExpiry = Number.POSITIVE_INFINITY
+
+    for (const [key, session] of sessions) {
+      const expiresAt = new Date(session.expiresAt).getTime()
+      if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+        await this.state.storage.delete(key)
+      } else {
+        nextExpiry = Math.min(nextExpiry, expiresAt)
+      }
+    }
+
+    if (Number.isFinite(nextExpiry)) {
+      await this.state.storage.setAlarm(nextExpiry)
+    }
+  }
+
+  private async migrateLegacyRecords() {
+    const users = await this.state.storage.get<Record<string, AuthUserRecord>>("usersByEmail")
+    const sessions = await this.state.storage.get<Record<string, AuthSessionRecord>>("sessions")
+
+    if (!users && !sessions) return
+
+    for (const [email, user] of Object.entries(users || {})) {
+      await this.state.storage.put(userKey(email), user)
+    }
+    for (const [hash, session] of Object.entries(sessions || {})) {
+      await this.state.storage.put(sessionKey(hash), session)
+    }
+    await this.state.storage.delete(["usersByEmail", "sessions"])
+  }
 }
+
+function userKey(email: string) { return `user:${email}` }
+function sessionKey(tokenHash: string) { return `session:${tokenHash}` }
 
 function normalizeEmail(value: string | undefined) {
   if (typeof value !== "string") {

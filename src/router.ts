@@ -15,11 +15,11 @@ import {
   setAuthCookie,
   setGuestCookie
 } from "./utils/cookies"
-import { checkRateLimit } from "./utils/rateLimit"
 import { chunkDocumentText, type LibraryCitation } from "./library/chunks"
 import { createEmbedding } from "./services/embeddings"
 import { logServerError, scopedPrefix } from "./utils/serverErrors"
 import { applyBrowserSecurityHeaders } from "./utils/browserSecurity"
+import { recordOperation } from "./utils/telemetry"
 
 interface AuthUser {
   id: string
@@ -71,17 +71,17 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     })
   }
 
-  const ip = request.headers.get("CF-Connecting-IP")
-
-  if (!checkRateLimit(ip)) {
-    return new Response("Rate limit exceeded", { status: 429 })
-  }
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown"
 
   if (url.pathname === "/auth/register" && request.method === "POST") {
+    const limited = await enforceLimit(env, "auth", ip, { limit: 8, windowMs: 15 * 60_000 })
+    if (limited) return limited
     return handleAuth(request, env, "register")
   }
 
   if (url.pathname === "/auth/login" && request.method === "POST") {
+    const limited = await enforceLimit(env, "auth", ip, { limit: 8, windowMs: 15 * 60_000 })
+    if (limited) return limited
     return handleAuth(request, env, "login")
   }
 
@@ -91,6 +91,24 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
 
   const principal =
     await resolvePrincipal(request, env)
+
+  const limitCategory = url.pathname === "/library/import"
+    ? "ingestion"
+    : url.pathname === "/chat" || url.pathname === "/chat/stream"
+      ? "chat-requests"
+      : ""
+
+  if (limitCategory) {
+    const limited = await enforceLimit(
+      env,
+      limitCategory,
+      principal.workspaceKey,
+      principal.user.isGuest
+        ? { limit: limitCategory === "chat-requests" ? 20 : 10, windowMs: 60 * 60_000 }
+        : { limit: limitCategory === "chat-requests" ? 120 : 40, windowMs: 60 * 60_000 }
+    )
+    if (limited) return finalizePrincipalResponse(limited, principal)
+  }
 
   const workspace =
     getWorkspaceStub(env, principal.workspaceKey)
@@ -199,6 +217,18 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     if (!attachments.length) {
       return new Response("Attachment required", { status: 400 })
     }
+
+    const fileLimited = await enforceLimit(
+      env,
+      "ingestion-files",
+      principal.workspaceKey,
+      {
+        limit: principal.user.isGuest ? 40 : 200,
+        windowMs: 60 * 60_000,
+        cost: attachments.length
+      }
+    )
+    if (fileLimited) return finalizePrincipalResponse(fileLimited, principal)
 
     let importedFiles: unknown[]
 
@@ -364,6 +394,22 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     if (!payload.message && !payload.attachments.length) {
       return new Response("Message or attachment required", { status: 400 })
     }
+
+    const estimatedTokens = Math.max(1, Math.ceil((
+      payload.message.length +
+      payload.attachments.reduce((total, attachment) => total + (attachment.extractedText?.length || 0), 0)
+    ) / 4))
+    const tokenLimited = await enforceLimit(
+      env,
+      "chat-tokens",
+      principal.workspaceKey,
+      {
+        limit: principal.user.isGuest ? 40_000 : 240_000,
+        windowMs: 60 * 60_000,
+        cost: estimatedTokens
+      }
+    )
+    if (tokenLimited) return finalizePrincipalResponse(tokenLimited, principal)
 
     const requestMetadata = {
       requestId,
@@ -651,6 +697,41 @@ async function forwardWorkspace(
     await workspace.fetch(`https://internal${path}`, init)
 
   return copyResponse(response)
+}
+
+async function enforceLimit(
+  env: Env,
+  category: string,
+  identity: string,
+  config: { limit: number; windowMs: number; cost?: number }
+) {
+  const startedAt = Date.now()
+  const stub = env.RATE_LIMITER.get(
+    env.RATE_LIMITER.idFromName(`${category}:${identity}`)
+  )
+  const response = await stub.fetch("https://internal/consume", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(config)
+  })
+  const result = await response.json() as { allowed?: boolean; retryAfter?: number }
+
+  recordOperation({
+    route: category,
+    outcome: result.allowed ? "allowed" : "limited",
+    durationMs: Date.now() - startedAt,
+    units: config.cost || 1
+  })
+
+  if (result.allowed) return null
+
+  return new Response("Rate limit exceeded", {
+    status: 429,
+    headers: {
+      "Retry-After": String(Math.max(1, result.retryAfter || 1)),
+      "Cache-Control": "no-store"
+    }
+  })
 }
 
 function getAuthDirectoryStub(env: Env) {
