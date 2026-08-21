@@ -240,6 +240,21 @@ node --check pages/app-attachments.js
 git diff --check
 ```
 
+## CI/CD
+
+GitHub Actions runs the full `npm run check` quality gate and validates the
+Cloudflare Worker bundle for every pull request and merge to `main`.
+
+Production deployment is deliberately manual through the **Deploy production**
+workflow. Protect the repository's `production` environment with required
+reviewers, then add these environment secrets:
+
+- `CLOUDFLARE_API_TOKEN` — scoped to deploy this Worker and write to its R2 bucket.
+- `CLOUDFLARE_ACCOUNT_ID` — the Cloudflare account that owns LYTA.
+
+The workflow never prints either value. It installs from `package-lock.json`,
+reruns the complete quality gate, and only then calls Wrangler to deploy.
+
 ## Roadmap Ideas
 
 - OCR for scanned PDFs and image-heavy documents
