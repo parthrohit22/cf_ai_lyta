@@ -19,6 +19,7 @@ import { checkRateLimit } from "./utils/rateLimit"
 import { chunkDocumentText, type LibraryCitation } from "./library/chunks"
 import { createEmbedding } from "./services/embeddings"
 import { logServerError, scopedPrefix } from "./utils/serverErrors"
+import { applyBrowserSecurityHeaders } from "./utils/browserSecurity"
 
 interface AuthUser {
   id: string
@@ -47,6 +48,13 @@ interface Principal {
 }
 
 export async function router(request: Request, env: Env): Promise<Response> {
+  return applyBrowserSecurityHeaders(
+    await routeRequest(request, env),
+    request.url
+  )
+}
+
+async function routeRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url)
 
   if (url.pathname === "/" && request.method === "GET") {

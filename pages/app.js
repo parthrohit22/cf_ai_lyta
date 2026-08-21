@@ -21,7 +21,6 @@ const {
   formatBytes,
   formatRelativeTime,
   renderMarkdown,
-  applyCitationMarkers,
   getFileTypeGlyph,
   setStatusState,
   getInitials,
@@ -244,18 +243,6 @@ function setActiveSession(id) {
 
 function setStatus(target, message, stateName = "neutral", fallback = "") {
   setStatusState(target, message, stateName, fallback)
-}
-
-if (window.marked) {
-  window.marked.setOptions({
-    breaks: true,
-    gfm: true
-  })
-}
-
-if (window.pdfjsLib?.GlobalWorkerOptions) {
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"
 }
 
 initThemeMode()
@@ -1291,8 +1278,7 @@ function renderMessageContent(target, message, opts = {}) {
       return
     }
 
-    const html = renderMarkdown(message.content, "")
-    target.innerHTML = applyCitationMarkers(html, message.citations)
+    target.replaceChildren(renderMarkdown(message.content, message.citations, ""))
 
     if (opts.streaming) {
       const cursor = document.createElement("span")
@@ -1966,7 +1952,7 @@ function renderBoard() {
     `${getCurrentSessionTitle()} · ${formatRelativeTime(message.createdAt)}`
   dom.boardState.hidden = true
   dom.boardBody.hidden = false
-  dom.boardBody.innerHTML = applyCitationMarkers(renderMarkdown(message.content), message.citations)
+  dom.boardBody.replaceChildren(renderMarkdown(message.content, message.citations))
 
   renderBoardSources(message.citations)
 }
