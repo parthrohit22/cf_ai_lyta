@@ -65,12 +65,10 @@ export class Conversation {
     }
 
     if(pathname === "/history"){
-
-      const recent =
-        (await this.state.storage.get<ChatMessageRecord[]>("recent")) || []
+      const messages = await this.loadCanonicalHistory()
 
       return Response.json({
-        messages: recent
+        messages
       })
     }
 
@@ -86,14 +84,13 @@ export class Conversation {
 
     if(pathname === "/stats"){
 
-      const recent =
-        (await this.state.storage.get<ChatMessageRecord[]>("recent")) || []
+      const messages = await this.loadCanonicalHistory()
 
       const summary =
         await this.state.storage.get("summary")
 
       return Response.json({
-        messageCount: recent.length,
+        messageCount: messages.length,
         hasSummary: !!summary
       })
     }
@@ -156,10 +153,10 @@ export class Conversation {
       sessionPrefix: scopedPrefix(sessionId)
     }
 
-    let recent =
-      (await this.state.storage.get<ChatMessageRecord[]>("recent")) || []
+    const history = await this.loadCanonicalHistory()
 
     const userMessage: ChatMessageRecord = {
+      id: requestId,
       role: "user",
       content: body.message,
       mode,
@@ -169,7 +166,12 @@ export class Conversation {
       createdAt: new Date().toISOString()
     }
 
-    recent.push(userMessage)
+    history.push(userMessage)
+
+    // The canonical user message is durable before generation starts. If an
+    // SSE client cancels or a Worker restarts, the user record survives; the
+    // assistant record is added only after a completed model response.
+    await this.putStorage("messages", history, "conversation.history.store", requestMetadata)
 
     let title =
       await this.state.storage.get<string>("title")
@@ -198,7 +200,7 @@ export class Conversation {
 
     const messages =
       buildConversationMessages({
-        recent,
+        recent: history.slice(-MAX_RECENT),
         mode,
         summary,
         retrievedContext
@@ -208,7 +210,7 @@ export class Conversation {
       return this.streamChat({
         messages,
         mode,
-        recent,
+        recent: history,
         userMessage,
         citations,
         evidenceStatus,
@@ -251,7 +253,7 @@ export class Conversation {
     const followups =
       await this.generateFollowups(userMessage, reply, mode, requestMetadata)
 
-    recent.push(
+    history.push(
       createAssistantMessage(reply, {
         mode,
         citations,
@@ -259,7 +261,7 @@ export class Conversation {
       })
     )
 
-    await this.persistConversation(recent, requestMetadata)
+    await this.persistConversation(history, requestMetadata)
     await this.touchWorkspaceSession(userId, sessionId, requestMetadata)
 
     return Response.json(
@@ -414,17 +416,24 @@ export class Conversation {
   }
 
   async persistConversation(
-    recent: ChatMessageRecord[],
+    history: ChatMessageRecord[],
     metadata: Record<string, unknown> = {}
   ){
 
-    if(recent.length > MAX_RECENT){
+    await this.putStorage(
+      "messages",
+      history,
+      "conversation.history.store",
+      metadata
+    )
+
+    if(history.length > MAX_RECENT){
 
       const summaryPrompt = [
         systemMessage(
           "Summarize the following conversation, preserving user preferences, uploaded file context, cited sources, and unresolved asks."
         ),
-        ...buildSummaryMessages(recent)
+        ...buildSummaryMessages(history)
       ]
 
       try {
@@ -446,15 +455,26 @@ export class Conversation {
         logServerError("conversation.summary.generate", error, metadata)
       }
 
-      recent = recent.slice(-4)
+    }
+  }
+
+  private async loadCanonicalHistory() {
+    const messages = await this.state.storage.get<ChatMessageRecord[]>("messages")
+
+    if (messages) {
+      return messages
     }
 
-    await this.putStorage(
-      "recent",
-      recent,
-      "conversation.recent.store",
-      metadata
-    )
+    // v1 records used `recent`; retain every message that survived the older
+    // compact format and write it once into the canonical history key.
+    const legacy =
+      (await this.state.storage.get<ChatMessageRecord[]>("recent")) || []
+
+    if (legacy.length) {
+      await this.state.storage.put("messages", legacy)
+    }
+
+    return legacy
   }
 
   private async generateConversationTitle(
