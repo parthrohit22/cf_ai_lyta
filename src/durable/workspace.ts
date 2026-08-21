@@ -1,9 +1,6 @@
 import { createId } from "../auth/crypto"
 import type { Env } from "../index"
-import {
-  buildLibrarySearchResult,
-  type WorkspaceChunk
-} from "../library/chunks"
+import { buildLibrarySearchResult, type WorkspaceChunk } from "../library/chunks"
 import {
   CONTEXT_SELECTION_POLICY_VERSION,
   normalizeContextKind,
@@ -79,17 +76,16 @@ const MAX_WORKSPACE_ARTIFACT_BYTES = 12_000_000
 const LIBRARY_PAGE_SIZE = 20
 
 export class Workspace {
-
   state: DurableObjectState
   env: Env
   private lock: Promise<void> = Promise.resolve()
 
-  constructor(state: DurableObjectState, env: Env){
+  constructor(state: DurableObjectState, env: Env) {
     this.state = state
     this.env = env
   }
 
-  async fetch(request: Request): Promise<Response>{
+  async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname
 
     if (path === "/initialize" && request.method === "POST") {
@@ -173,27 +169,26 @@ export class Workspace {
 
   private async queue<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.lock.then(fn)
-    this.lock = next.then(() => {}, () => {})
+    this.lock = next.then(
+      () => {},
+      () => {}
+    )
     return next
   }
 
   private async initialize(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       name?: string
       workspace?: string
       email?: string
       scope?: string
     }
 
-    const profile =
-      (await this.state.storage.get<WorkspaceProfile>("profile")) || null
+    const profile = (await this.state.storage.get<WorkspaceProfile>("profile")) || null
 
     if (profile) {
-      if (body.scope && !await this.state.storage.get("workspaceScope")) {
-        await this.state.storage.put(
-          "workspaceScope",
-          normalizeText(body.scope, 120) || "legacy"
-        )
+      if (body.scope && !(await this.state.storage.get("workspaceScope"))) {
+        await this.state.storage.put("workspaceScope", normalizeText(body.scope, 120) || "legacy")
       }
       return Response.json({ ok: true })
     }
@@ -204,10 +199,7 @@ export class Workspace {
       email: normalizeText(body.email, 120)
     } satisfies WorkspaceProfile)
 
-    await this.state.storage.put(
-      "workspaceScope",
-      normalizeText(body.scope, 120) || "legacy"
-    )
+    await this.state.storage.put("workspaceScope", normalizeText(body.scope, 120) || "legacy")
 
     await this.state.storage.put("preferences", {
       theme: {},
@@ -222,22 +214,15 @@ export class Workspace {
   }
 
   private async bootstrap() {
-    const profile =
-      (await this.state.storage.get<WorkspaceProfile>("profile")) || {
-        name: "Guest User",
-        workspace: "Private Workspace",
-        email: ""
-      }
+    const profile = (await this.state.storage.get<WorkspaceProfile>("profile")) || {
+      name: "Guest User",
+      workspace: "Private Workspace",
+      email: ""
+    }
 
-    const preferences =
-      normalizePreferences(
-        (await this.state.storage.get<WorkspacePreferences>("preferences")) || null
-      )
+    const preferences = normalizePreferences((await this.state.storage.get<WorkspacePreferences>("preferences")) || null)
 
-    const sessions =
-      sortSessions(
-        (await this.state.storage.get<WorkspaceSession[]>("sessions")) || []
-      )
+    const sessions = sortSessions((await this.state.storage.get<WorkspaceSession[]>("sessions")) || [])
 
     const library = await this.loadLibrary()
 
@@ -253,17 +238,16 @@ export class Workspace {
   }
 
   private async updateProfile(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       name?: string
       workspace?: string
     }
 
-    const current =
-      (await this.state.storage.get<WorkspaceProfile>("profile")) || {
-        name: "Guest User",
-        workspace: "Private Workspace",
-        email: ""
-      }
+    const current = (await this.state.storage.get<WorkspaceProfile>("profile")) || {
+      name: "Guest User",
+      workspace: "Private Workspace",
+      email: ""
+    }
 
     const next = {
       ...current,
@@ -279,7 +263,7 @@ export class Workspace {
   }
 
   private async updatePreferences(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       theme?: Record<string, string>
       ui?: {
         sidebarHidden?: boolean
@@ -288,20 +272,14 @@ export class Workspace {
       }
     }
 
-    const current =
-      normalizePreferences(
-        (await this.state.storage.get<WorkspacePreferences>("preferences")) || null
-      )
+    const current = normalizePreferences((await this.state.storage.get<WorkspacePreferences>("preferences")) || null)
 
     const next = {
       theme: sanitizeTheme(body.theme ?? current.theme),
       ui: {
         sidebarHidden: Boolean(body.ui?.sidebarHidden ?? current.ui.sidebarHidden),
         boardOpen: Boolean(body.ui?.boardOpen ?? current.ui.boardOpen),
-        chatMode:
-          body.ui?.chatMode === "deep" || body.ui?.chatMode === "creative"
-            ? body.ui.chatMode
-            : current.ui.chatMode || "instant"
+        chatMode: body.ui?.chatMode === "deep" || body.ui?.chatMode === "creative" ? body.ui.chatMode : current.ui.chatMode || "instant"
       }
     } satisfies WorkspacePreferences
 
@@ -313,18 +291,13 @@ export class Workspace {
   }
 
   private async getSessions() {
-    const sessions =
-      sortSessions(
-        (await this.state.storage.get<WorkspaceSession[]>("sessions")) || []
-      )
+    const sessions = sortSessions((await this.state.storage.get<WorkspaceSession[]>("sessions")) || [])
 
     return Response.json({ sessions })
   }
 
   private async createSession() {
-    let sessions = sortSessions(
-      (await this.state.storage.get<WorkspaceSession[]>("sessions")) || []
-    )
+    let sessions = sortSessions((await this.state.storage.get<WorkspaceSession[]>("sessions")) || [])
 
     const now = new Date().toISOString()
     const id = createId("chat")
@@ -348,7 +321,7 @@ export class Workspace {
   }
 
   private async renameSession(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       id?: string
       title?: string
     }
@@ -357,11 +330,9 @@ export class Workspace {
       return new Response("Invalid rename", { status: 400 })
     }
 
-    const sessions = sortSessions(
-      (await this.state.storage.get<WorkspaceSession[]>("sessions")) || []
-    )
+    const sessions = sortSessions((await this.state.storage.get<WorkspaceSession[]>("sessions")) || [])
 
-    const session = sessions.find(item => item.id === body.id)
+    const session = sessions.find((item) => item.id === body.id)
 
     if (session) {
       session.title = normalizeText(body.title, 60) || session.title
@@ -373,7 +344,7 @@ export class Workspace {
   }
 
   private async deleteSession(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       id?: string
     }
 
@@ -381,21 +352,15 @@ export class Workspace {
       return new Response("Invalid session", { status: 400 })
     }
 
-    const sessions =
-      (await this.state.storage.get<WorkspaceSession[]>("sessions")) || []
+    const sessions = (await this.state.storage.get<WorkspaceSession[]>("sessions")) || []
 
-    await this.state.storage.put(
-      "sessions",
-      sortSessions(
-        sessions.filter(session => session.id !== body.id)
-      )
-    )
+    await this.state.storage.put("sessions", sortSessions(sessions.filter((session) => session.id !== body.id)))
 
     return Response.json({ ok: true })
   }
 
   private async touchSession(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       id?: string
     }
 
@@ -403,11 +368,9 @@ export class Workspace {
       return new Response("Invalid session", { status: 400 })
     }
 
-    const sessions = sortSessions(
-      (await this.state.storage.get<WorkspaceSession[]>("sessions")) || []
-    )
+    const sessions = sortSessions((await this.state.storage.get<WorkspaceSession[]>("sessions")) || [])
 
-    const session = sessions.find(item => item.id === body.id)
+    const session = sessions.find((item) => item.id === body.id)
 
     if (session) {
       session.updatedAt = new Date().toISOString()
@@ -418,15 +381,14 @@ export class Workspace {
   }
 
   private async hasSession(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       id?: string
     }
 
-    const sessions =
-      (await this.state.storage.get<WorkspaceSession[]>("sessions")) || []
+    const sessions = (await this.state.storage.get<WorkspaceSession[]>("sessions")) || []
 
     return Response.json({
-      exists: !!body?.id && sessions.some(session => session.id === body.id)
+      exists: !!body?.id && sessions.some((session) => session.id === body.id)
     })
   }
 
@@ -447,18 +409,13 @@ export class Workspace {
   }
 
   private async checkLibraryQuota(request: Request) {
-    const body = await request.json() as { files?: Array<{ size?: number }> }
+    const body = (await request.json()) as { files?: Array<{ size?: number }> }
     const incoming = Array.isArray(body.files) ? body.files : []
-    const incomingBytes = incoming.reduce((total, file) => total + (
-      Number.isFinite(file?.size) ? Math.max(0, Number(file.size)) : 0
-    ), 0)
+    const incomingBytes = incoming.reduce((total, file) => total + (Number.isFinite(file?.size) ? Math.max(0, Number(file.size)) : 0), 0)
     const library = await this.loadLibrary()
     const usedBytes = library.reduce((total, file) => total + file.attachment.size, 0)
 
-    if (
-      incoming.some(file => Number(file?.size) > MAX_ARTIFACT_BYTES) ||
-      usedBytes + incomingBytes > MAX_WORKSPACE_ARTIFACT_BYTES
-    ) {
+    if (incoming.some((file) => Number(file?.size) > MAX_ARTIFACT_BYTES) || usedBytes + incomingBytes > MAX_WORKSPACE_ARTIFACT_BYTES) {
       return new Response("Workspace artifact quota exceeded", { status: 413 })
     }
 
@@ -466,7 +423,7 @@ export class Workspace {
   }
 
   private async upsertLibrary(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       files?: IncomingLibraryAttachment[]
       chunks?: WorkspaceChunk[]
     }
@@ -475,8 +432,7 @@ export class Workspace {
     const incomingChunks = Array.isArray(body.chunks) ? body.chunks : []
 
     let library = await this.loadLibrary()
-    let chunks =
-      (await this.state.storage.get<WorkspaceChunk[]>("libraryChunks")) || []
+    let chunks = (await this.state.storage.get<WorkspaceChunk[]>("libraryChunks")) || []
 
     const now = new Date().toISOString()
     const storedFiles: StoredLibraryFile[] = []
@@ -488,7 +444,7 @@ export class Workspace {
         continue
       }
 
-      const existing = library.find(file => file.signature === signature)
+      const existing = library.find((file) => file.signature === signature)
 
       if (existing) {
         existing.updatedAt = now
@@ -522,8 +478,7 @@ export class Workspace {
           id: incoming.id,
           kind: incoming.kind,
           name: normalizeText(incoming.name, 120) || "Attachment",
-          mimeType:
-            normalizeText(incoming.mimeType, 120) || "application/octet-stream",
+          mimeType: normalizeText(incoming.mimeType, 120) || "application/octet-stream",
           size: Number.isFinite(incoming.size) ? incoming.size : 0,
           summary: normalizeText(incoming.summary, 280)
         }
@@ -534,10 +489,10 @@ export class Workspace {
     }
 
     for (const storedFile of storedFiles) {
-      chunks = chunks.filter(chunk => chunk.fileId !== storedFile.id)
+      chunks = chunks.filter((chunk) => chunk.fileId !== storedFile.id)
 
       const matchingChunks = incomingChunks
-        .filter(chunk => chunk.fileId === storedFile.signature)
+        .filter((chunk) => chunk.fileId === storedFile.signature)
         .map((chunk, index) => ({
           // The import pipeline derives this from the immutable source hash and
           // index. Preserve it rather than replacing it with a random DO id.
@@ -555,9 +510,9 @@ export class Workspace {
 
     if (library.length > MAX_LIBRARY_FILES) {
       const removed = library.slice(MAX_LIBRARY_FILES)
-      const removedIds = new Set(removed.map(file => file.id))
+      const removedIds = new Set(removed.map((file) => file.id))
       library = library.slice(0, MAX_LIBRARY_FILES)
-      chunks = chunks.filter(chunk => !removedIds.has(chunk.fileId))
+      chunks = chunks.filter((chunk) => !removedIds.has(chunk.fileId))
     }
 
     if (chunks.length > MAX_LIBRARY_CHUNKS) {
@@ -573,7 +528,7 @@ export class Workspace {
   }
 
   private async deleteLibraryFile(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       id?: string
     }
 
@@ -582,10 +537,9 @@ export class Workspace {
     }
 
     const library = await this.loadLibrary()
-    const chunks =
-      (await this.state.storage.get<WorkspaceChunk[]>("libraryChunks")) || []
+    const chunks = (await this.state.storage.get<WorkspaceChunk[]>("libraryChunks")) || []
 
-    const deleted = library.find(file => file.id === body.id)
+    const deleted = library.find((file) => file.id === body.id)
 
     if (deleted) {
       await this.env.ARTIFACTS.delete(deleted.objectKey)
@@ -594,17 +548,17 @@ export class Workspace {
     const deletionImpact = await this.removeContextReferences({
       sourceFileIds: [body.id],
       sourceVersionIds: deleted ? [deleted.sourceVersionId] : [],
-      chunkIds: chunks.filter(chunk => chunk.fileId === body.id).map(chunk => chunk.id)
+      chunkIds: chunks.filter((chunk) => chunk.fileId === body.id).map((chunk) => chunk.id)
     })
 
     await this.state.storage.put(
       "library",
-      library.filter(file => file.id !== body.id)
+      library.filter((file) => file.id !== body.id)
     )
 
     await this.state.storage.put(
       "libraryChunks",
-      chunks.filter(chunk => chunk.fileId !== body.id)
+      chunks.filter((chunk) => chunk.fileId !== body.id)
     )
 
     return Response.json({ ok: true, deletionImpact })
@@ -619,10 +573,9 @@ export class Workspace {
    * Object value is rewritten only after every corresponding R2 write succeeds.
    */
   private async loadLibrary(): Promise<StoredLibraryFile[]> {
-    const stored =
-      (await this.state.storage.get<LegacyStoredLibraryFile[]>("library")) || []
+    const stored = (await this.state.storage.get<LegacyStoredLibraryFile[]>("library")) || []
 
-    if (!stored.some(file => !file.ingestionState || !file.objectKey || !file.contentHash || !file.sourceVersionId || !file.retention)) {
+    if (!stored.some((file) => !file.ingestionState || !file.objectKey || !file.contentHash || !file.sourceVersionId || !file.retention)) {
       return stored as StoredLibraryFile[]
     }
 
@@ -679,16 +632,14 @@ export class Workspace {
   }
 
   private async searchLibrary(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       queryVector?: number[]
       topK?: number
       requestId?: string
       policyVersion?: string
     }
 
-    const queryVector = Array.isArray(body.queryVector)
-      ? body.queryVector.filter(value => typeof value === "number")
-      : []
+    const queryVector = Array.isArray(body.queryVector) ? body.queryVector.filter((value) => typeof value === "number") : []
 
     if (!queryVector.length) {
       return Response.json({
@@ -697,14 +648,9 @@ export class Workspace {
       })
     }
 
-    const chunks =
-      (await this.state.storage.get<WorkspaceChunk[]>("libraryChunks")) || []
+    const chunks = (await this.state.storage.get<WorkspaceChunk[]>("libraryChunks")) || []
 
-    const result = buildLibrarySearchResult(
-      queryVector,
-      chunks,
-      typeof body.topK === "number" ? body.topK : 4
-    )
+    const result = buildLibrarySearchResult(queryVector, chunks, typeof body.topK === "number" ? body.topK : 4)
 
     await this.recordContextManifest({
       requestId: normalizeText(body.requestId, 120) || createId("context-request"),
@@ -723,7 +669,7 @@ export class Workspace {
 
     return Response.json({
       sources: library.map(toContextSource),
-      records: records.map(record => includeContent ? record : toContextRecordMetadata(record))
+      records: records.map((record) => (includeContent ? record : toContextRecordMetadata(record)))
     })
   }
 
@@ -735,7 +681,7 @@ export class Workspace {
   }
 
   private async upsertContextRecord(request: Request) {
-    const body = await request.json() as Partial<ProjectContextRecord> & {
+    const body = (await request.json()) as Partial<ProjectContextRecord> & {
       provenance?: Partial<ContextProvenance>
     }
     const kind = normalizeContextKind(body.kind)
@@ -750,11 +696,11 @@ export class Workspace {
     const records = await this.loadContextRecords()
     const library = await this.loadLibrary()
     const chunks = (await this.state.storage.get<WorkspaceChunk[]>("libraryChunks")) || []
-    const fileIds = new Set(library.map(file => file.id))
-    const sourceVersionIds = new Set(library.map(file => file.sourceVersionId))
-    const chunkIds = new Set(chunks.map(chunk => chunk.id))
+    const fileIds = new Set(library.map((file) => file.id))
+    const sourceVersionIds = new Set(library.map((file) => file.sourceVersionId))
+    const chunkIds = new Set(chunks.map((chunk) => chunk.id))
     const now = new Date().toISOString()
-    const existing = records.find(record => record.id === normalizeText(body.id, 180))
+    const existing = records.find((record) => record.id === normalizeText(body.id, 180))
     const record: ProjectContextRecord = {
       id: existing?.id || createId(`context-${kind}`),
       kind,
@@ -763,9 +709,9 @@ export class Workspace {
       workspaceScope: scope,
       provenance: {
         createdBy: "user",
-        sourceFileIds: uniqueIds(body.provenance?.sourceFileIds).filter(id => fileIds.has(id)),
-        sourceVersionIds: uniqueIds(body.provenance?.sourceVersionIds).filter(id => sourceVersionIds.has(id)),
-        chunkIds: uniqueIds(body.provenance?.chunkIds).filter(id => chunkIds.has(id))
+        sourceFileIds: uniqueIds(body.provenance?.sourceFileIds).filter((id) => fileIds.has(id)),
+        sourceVersionIds: uniqueIds(body.provenance?.sourceVersionIds).filter((id) => sourceVersionIds.has(id)),
+        chunkIds: uniqueIds(body.provenance?.chunkIds).filter((id) => chunkIds.has(id))
       },
       approval: kind === "summary" ? "user-approved" : "not-required",
       retention: "until-user-delete",
@@ -775,21 +721,21 @@ export class Workspace {
 
     await this.state.storage.put(
       "projectContextRecords",
-      [record, ...records.filter(candidate => candidate.id !== record.id)].slice(0, 200)
+      [record, ...records.filter((candidate) => candidate.id !== record.id)].slice(0, 200)
     )
     return Response.json({ record: toContextRecordMetadata(record) })
   }
 
   private async deleteContextRecord(request: Request) {
-    const body = await request.json() as { id?: string }
+    const body = (await request.json()) as { id?: string }
     const id = normalizeText(body.id, 180)
     if (!id) return new Response("Invalid context record", { status: 400 })
 
     const records = await this.loadContextRecords()
-    const exists = records.some(record => record.id === id)
+    const exists = records.some((record) => record.id === id)
     await this.state.storage.put(
       "projectContextRecords",
-      records.filter(record => record.id !== id)
+      records.filter((record) => record.id !== id)
     )
     return Response.json({ ok: true, deleted: exists })
   }
@@ -799,17 +745,18 @@ export class Workspace {
     const sourceVersionIds = new Set(provenance.sourceVersionIds || [])
     const chunkIds = new Set(provenance.chunkIds || [])
     const records = await this.loadContextRecords()
-    const affectedRecords = records.filter(record =>
-      record.provenance.sourceFileIds.some(id => sourceFileIds.has(id)) ||
-      record.provenance.sourceVersionIds.some(id => sourceVersionIds.has(id)) ||
-      record.provenance.chunkIds.some(id => chunkIds.has(id))
+    const affectedRecords = records.filter(
+      (record) =>
+        record.provenance.sourceFileIds.some((id) => sourceFileIds.has(id)) ||
+        record.provenance.sourceVersionIds.some((id) => sourceVersionIds.has(id)) ||
+        record.provenance.chunkIds.some((id) => chunkIds.has(id))
     )
 
     // Deleting a source invalidates derived records. This avoids surfacing a
     // finding or decision whose supporting evidence is no longer available.
     await this.state.storage.put(
       "projectContextRecords",
-      records.filter(record => !affectedRecords.includes(record))
+      records.filter((record) => !affectedRecords.includes(record))
     )
     // Manifests are immutable audit evidence. They contain IDs only, so keeping
     // them records what a previous request received without retaining content.
@@ -822,10 +769,10 @@ export class Workspace {
     citations: Array<{ id: string; fileId: string }>
   }) {
     const library = await this.loadLibrary()
-    const sourceFileIds = uniqueIds(input.citations.map(citation => citation.fileId))
-    const sourceVersionIds = sourceFileIds.map(fileId =>
-      library.find(file => file.id === fileId)?.sourceVersionId
-    ).filter((value): value is string => Boolean(value))
+    const sourceFileIds = uniqueIds(input.citations.map((citation) => citation.fileId))
+    const sourceVersionIds = sourceFileIds
+      .map((fileId) => library.find((file) => file.id === fileId)?.sourceVersionId)
+      .filter((value): value is string => Boolean(value))
     const manifest: ContextSelectionManifest = {
       id: createId("context-manifest"),
       workspaceScope: await this.workspaceScope(),
@@ -833,7 +780,7 @@ export class Workspace {
       policyVersion: input.policyVersion,
       selectedSourceFileIds: sourceFileIds,
       selectedSourceVersionIds: uniqueIds(sourceVersionIds),
-      selectedChunkIds: uniqueIds(input.citations.map(citation => citation.id)),
+      selectedChunkIds: uniqueIds(input.citations.map((citation) => citation.id)),
       selectedContextRecordIds: [],
       createdAt: new Date().toISOString()
     }
@@ -856,10 +803,7 @@ function normalizeText(value: unknown, maxLength: number) {
     return ""
   }
 
-  return value
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLength)
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength)
 }
 
 function normalizeTextBlock(value: unknown, maxLength: number) {
@@ -911,19 +855,13 @@ function sortSessions(sessions: WorkspaceSession[]) {
   })
 }
 
-function normalizePreferences(
-  preferences: WorkspacePreferences | null
-): WorkspacePreferences {
+function normalizePreferences(preferences: WorkspacePreferences | null): WorkspacePreferences {
   return {
     theme: sanitizeTheme(preferences?.theme || {}),
     ui: {
       sidebarHidden: Boolean(preferences?.ui?.sidebarHidden),
       boardOpen: preferences?.ui?.boardOpen !== false,
-      chatMode:
-        preferences?.ui?.chatMode === "deep" ||
-        preferences?.ui?.chatMode === "creative"
-          ? preferences.ui.chatMode
-          : "instant"
+      chatMode: preferences?.ui?.chatMode === "deep" || preferences?.ui?.chatMode === "creative" ? preferences.ui.chatMode : "instant"
     }
   }
 }

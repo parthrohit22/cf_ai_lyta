@@ -2,10 +2,7 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { test } from "node:test"
 import vm from "node:vm"
-import {
-  applyBrowserSecurityHeaders,
-  CONTENT_SECURITY_POLICY
-} from "../src/utils/browserSecurity"
+import { applyBrowserSecurityHeaders, CONTENT_SECURITY_POLICY } from "../../src/utils/browserSecurity"
 
 function loadClientCore() {
   class TestNode {
@@ -47,10 +44,7 @@ function loadClientCore() {
     fetch
   }
 
-  vm.runInNewContext(
-    readFileSync(new URL("../pages/app-core.js", import.meta.url), "utf8"),
-    context
-  )
+  vm.runInNewContext(readFileSync(new URL("../../pages/app-core.js", import.meta.url), "utf8"), context)
 
   return {
     core: context.window.LytaCore,
@@ -63,34 +57,29 @@ test("streamed, saved, citation, and board text stays inert without a sanitizer 
   const payload = '<img src=x onerror="globalThis.pwned=1">[Source 1]'
 
   for (const context of ["streamed", "saved-history", "citation", "board"]) {
-    const fragment = core.renderMarkdown(
-      payload,
-      [{
+    const fragment = core.renderMarkdown(payload, [
+      {
         id: "chunk-1",
         label: "Source 1",
         fileId: "file-1",
         fileName: `<script>${context}</script>`,
         snippet: payload
-      }]
-    )
+      }
+    ])
 
-    const allNodes = (node: TestNode): TestNode[] =>
-      [node, ...node.children.flatMap(allNodes)]
+    const allNodes = (node: TestNode): TestNode[] => [node, ...node.children.flatMap(allNodes)]
     const nodes = allNodes(fragment as TestNode)
-    const text = nodes.map(node => node.textContent).join("")
+    const text = nodes.map((node) => node.textContent).join("")
 
     assert.match(text, /<img src=x onerror="globalThis\.pwned=1">/)
-    assert.equal(nodes.filter(node => node.nodeName === "img" || node.nodeName === "script").length, 0)
-    assert.equal(nodes.filter(node => node.nodeName === "button").length, 1)
-    assert.equal(nodes.filter(node => node.nodeName === "button")[0]?.className, "citation-marker")
+    assert.equal(nodes.filter((node) => node.nodeName === "img" || node.nodeName === "script").length, 0)
+    assert.equal(nodes.filter((node) => node.nodeName === "button").length, 1)
+    assert.equal(nodes.filter((node) => node.nodeName === "button")[0]?.className, "citation-marker")
   }
 })
 
 test("Worker responses receive the deliberate browser security policy", () => {
-  const secure = applyBrowserSecurityHeaders(
-    new Response("ok", { headers: { "X-Existing": "preserved" } }),
-    "https://lyta.example/chat"
-  )
+  const secure = applyBrowserSecurityHeaders(new Response("ok", { headers: { "X-Existing": "preserved" } }), "https://lyta.example/chat")
 
   assert.equal(secure.headers.get("Content-Security-Policy"), CONTENT_SECURITY_POLICY)
   assert.equal(secure.headers.get("X-Content-Type-Options"), "nosniff")
@@ -103,8 +92,8 @@ test("Worker responses receive the deliberate browser security policy", () => {
 })
 
 test("the static asset policy is self-contained and matches the Worker policy", () => {
-  const html = readFileSync(new URL("../pages/index.html", import.meta.url), "utf8")
-  const headers = readFileSync(new URL("../pages/_headers", import.meta.url), "utf8")
+  const html = readFileSync(new URL("../../pages/index.html", import.meta.url), "utf8")
+  const headers = readFileSync(new URL("../../pages/_headers", import.meta.url), "utf8")
 
   assert.match(html, /pdf\.min\.js" integrity="sha384-/)
   assert.match(html, /mammoth@1\.12\.1\/mammoth\.browser\.min\.js" integrity="sha384-/)

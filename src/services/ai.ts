@@ -5,12 +5,7 @@ const MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
 
 export interface AiChatMessage {
   role: "system" | "user" | "assistant"
-  content:
-    | string
-    | Array<
-        | { type: "text"; text: string }
-        | { type: "image_url"; image_url: { url: string } }
-      >
+  content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>
 }
 
 interface AiTextResponse {
@@ -44,17 +39,12 @@ function getModelSettings(mode: ChatMode | undefined) {
   }
 }
 
-export async function runAI(
-  env: Pick<Env, "AI">,
-  messages: AiChatMessage[],
-  options?: RunAIOptions
-) {
+export async function runAI(env: Pick<Env, "AI">, messages: AiChatMessage[], options?: RunAIOptions) {
   try {
-    const result =
-      await env.AI.run(MODEL, {
-        messages,
-        ...getModelSettings(options?.mode)
-      })
+    const result = await env.AI.run(MODEL, {
+      messages,
+      ...getModelSettings(options?.mode)
+    })
 
     if (!isObject(result)) {
       return {}
@@ -68,18 +58,13 @@ export async function runAI(
   }
 }
 
-export async function runAIStream(
-  env: Pick<Env, "AI">,
-  messages: AiChatMessage[],
-  options?: RunAIOptions
-) {
+export async function runAIStream(env: Pick<Env, "AI">, messages: AiChatMessage[], options?: RunAIOptions) {
   try {
-    const stream =
-      await env.AI.run(MODEL, {
-        messages,
-        ...getModelSettings(options?.mode),
-        stream: true
-      })
+    const stream = await env.AI.run(MODEL, {
+      messages,
+      ...getModelSettings(options?.mode),
+      stream: true
+    })
 
     if (!isReadableStream(stream)) {
       throw new Error("Workers AI did not return a readable stream.")
@@ -98,9 +83,5 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    typeof (value as ReadableStream<Uint8Array>).getReader === "function"
-  )
+  return Boolean(value && typeof value === "object" && typeof (value as ReadableStream<Uint8Array>).getReader === "function")
 }

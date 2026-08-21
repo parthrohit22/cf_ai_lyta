@@ -14,10 +14,7 @@ const SAFE_METADATA_KEYS = new Set([
   "retrievalAttempted"
 ])
 
-export function getSafeErrorMessage(
-  error: unknown,
-  fallback = "Unexpected server error."
-) {
+export function getSafeErrorMessage(error: unknown, fallback = "Unexpected server error.") {
   if (error instanceof Error && error.message.trim()) {
     return normalizeLogString(error.message, MAX_ERROR_MESSAGE_LENGTH)
   }
@@ -29,11 +26,7 @@ export function getSafeErrorMessage(
   return fallback
 }
 
-export function logServerError(
-  scope: string,
-  error: unknown,
-  metadata?: Record<string, unknown>
-) {
+export function logServerError(scope: string, error: unknown, metadata?: Record<string, unknown>) {
   const payload = {
     level: "error",
     scope: normalizeLogString(scope, 80),
@@ -75,10 +68,7 @@ function sanitizeMetadata(metadata: Record<string, unknown>) {
 }
 
 function sanitizeValue(value: unknown): unknown {
-  if (
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
+  if (typeof value === "number" || typeof value === "boolean") {
     return value
   }
 

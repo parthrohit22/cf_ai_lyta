@@ -8,13 +8,7 @@ import {
   type ChatMessageRecord,
   type ChatRequestBody
 } from "./chat/messages"
-import {
-  clearAuthCookie,
-  getGuestToken,
-  getAuthToken,
-  setAuthCookie,
-  setGuestCookie
-} from "./utils/cookies"
+import { clearAuthCookie, getGuestToken, getAuthToken, setAuthCookie, setGuestCookie } from "./utils/cookies"
 import { chunkDocumentText, type LibraryCitation } from "./library/chunks"
 import { createEmbedding } from "./services/embeddings"
 import { logServerError, scopedPrefix } from "./utils/serverErrors"
@@ -38,8 +32,7 @@ const JSON_HEADERS = {
   "Content-Type": "application/json"
 }
 
-const CHAT_SERVER_ERROR =
-  "LYTA server error. Please retry; request failed before streaming started."
+const CHAT_SERVER_ERROR = "LYTA server error. Please retry; request failed before streaming started."
 
 interface Principal {
   user: AuthUser
@@ -48,10 +41,7 @@ interface Principal {
 }
 
 export async function router(request: Request, env: Env): Promise<Response> {
-  return applyBrowserSecurityHeaders(
-    await routeRequest(request, env),
-    request.url
-  )
+  return applyBrowserSecurityHeaders(await routeRequest(request, env), request.url)
 }
 
 async function routeRequest(request: Request, env: Env): Promise<Response> {
@@ -89,14 +79,10 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return handleLogout(request, env)
   }
 
-  const principal =
-    await resolvePrincipal(request, env)
+  const principal = await resolvePrincipal(request, env)
 
-  const limitCategory = url.pathname === "/library/import"
-    ? "ingestion"
-    : url.pathname === "/chat" || url.pathname === "/chat/stream"
-      ? "chat-requests"
-      : ""
+  const limitCategory =
+    url.pathname === "/library/import" ? "ingestion" : url.pathname === "/chat" || url.pathname === "/chat/stream" ? "chat-requests" : ""
 
   if (limitCategory) {
     const limited = await enforceLimit(
@@ -110,14 +96,12 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     if (limited) return finalizePrincipalResponse(limited, principal)
   }
 
-  const workspace =
-    getWorkspaceStub(env, principal.workspaceKey)
+  const workspace = getWorkspaceStub(env, principal.workspaceKey)
 
   if (url.pathname === "/workspace/bootstrap" && request.method === "GET") {
     await ensureWorkspaceInitialized(workspace, principal.user)
 
-    const response =
-      await workspace.fetch("https://internal/bootstrap")
+    const response = await workspace.fetch("https://internal/bootstrap")
 
     return finalizePrincipalResponse(
       noStoreJson(await response.json(), {
@@ -128,58 +112,60 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   }
 
   if (url.pathname === "/workspace/profile" && request.method === "POST") {
-    return finalizePrincipalResponse(await forwardWorkspace(workspace, "/profile", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: await request.text()
-    }), principal)
+    return finalizePrincipalResponse(
+      await forwardWorkspace(workspace, "/profile", {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: await request.text()
+      }),
+      principal
+    )
   }
 
   if (url.pathname === "/workspace/preferences" && request.method === "POST") {
-    return finalizePrincipalResponse(await forwardWorkspace(workspace, "/preferences", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: await request.text()
-    }), principal)
+    return finalizePrincipalResponse(
+      await forwardWorkspace(workspace, "/preferences", {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: await request.text()
+      }),
+      principal
+    )
   }
 
   if (url.pathname === "/sessions" && request.method === "GET") {
-    return finalizePrincipalResponse(
-      await forwardWorkspace(workspace, "/sessions"),
-      principal
-    )
+    return finalizePrincipalResponse(await forwardWorkspace(workspace, "/sessions"), principal)
   }
 
   if (url.pathname === "/sessions/create" && request.method === "POST") {
     await ensureWorkspaceInitialized(workspace, principal.user)
 
-    return finalizePrincipalResponse(await forwardWorkspace(workspace, "/sessions/create", {
-      method: "POST"
-    }), principal)
+    return finalizePrincipalResponse(
+      await forwardWorkspace(workspace, "/sessions/create", {
+        method: "POST"
+      }),
+      principal
+    )
   }
 
   if (url.pathname === "/sessions/delete" && request.method === "POST") {
-    const body =
-      await safeJson<{ id?: string }>(request)
+    const body = await safeJson<{ id?: string }>(request)
 
-    const sessionId =
-      normalizeSessionId(body?.id)
+    const sessionId = normalizeSessionId(body?.id)
 
     if (!sessionId) {
       return new Response("Invalid session", { status: 400 })
     }
 
-    const workspaceResponse =
-      await workspace.fetch("https://internal/sessions/delete", {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({
-          id: sessionId
-        })
+    const workspaceResponse = await workspace.fetch("https://internal/sessions/delete", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        id: sessionId
       })
+    })
 
-    const conversation =
-      getConversationStub(env, principal.workspaceKey, sessionId)
+    const conversation = getConversationStub(env, principal.workspaceKey, sessionId)
 
     await conversation.fetch("https://internal/reset", {
       method: "POST"
@@ -189,16 +175,12 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   }
 
   if (url.pathname === "/library" && request.method === "GET") {
-    return finalizePrincipalResponse(
-      await forwardWorkspace(workspace, "/library"),
-      principal
-    )
+    return finalizePrincipalResponse(await forwardWorkspace(workspace, "/library"), principal)
   }
 
   if (url.pathname === "/library/import" && request.method === "POST") {
     const requestId = crypto.randomUUID()
-    const body =
-      await safeJson<{ attachments?: ChatAttachment[] }>(request)
+    const body = await safeJson<{ attachments?: ChatAttachment[] }>(request)
 
     if (
       !body ||
@@ -209,38 +191,31 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
       return new Response("Attachment required", { status: 400 })
     }
 
-    const attachments =
-      normalizeChatRequest({
-        attachments: Array.isArray(body.attachments) ? body.attachments : []
-      }).attachments
+    const attachments = normalizeChatRequest({
+      attachments: Array.isArray(body.attachments) ? body.attachments : []
+    }).attachments
 
     if (!attachments.length) {
       return new Response("Attachment required", { status: 400 })
     }
 
-    const fileLimited = await enforceLimit(
-      env,
-      "ingestion-files",
-      principal.workspaceKey,
-      {
-        limit: principal.user.isGuest ? 40 : 200,
-        windowMs: 60 * 60_000,
-        cost: attachments.length
-      }
-    )
+    const fileLimited = await enforceLimit(env, "ingestion-files", principal.workspaceKey, {
+      limit: principal.user.isGuest ? 40 : 200,
+      windowMs: 60 * 60_000,
+      cost: attachments.length
+    })
     if (fileLimited) return finalizePrincipalResponse(fileLimited, principal)
 
     let importedFiles: unknown[]
 
     try {
-      importedFiles =
-        await importAttachmentsIntoLibrary(env, workspace, attachments, {
-          requestId,
-          route: "/library/import",
-          attachmentCount: attachments.length,
-          principalType: principal.user.isGuest ? "guest" : "account",
-          workspacePrefix: scopedPrefix(principal.workspaceKey)
-        })
+      importedFiles = await importAttachmentsIntoLibrary(env, workspace, attachments, {
+        requestId,
+        route: "/library/import",
+        attachmentCount: attachments.length,
+        principalType: principal.user.isGuest ? "guest" : "account",
+        workspacePrefix: scopedPrefix(principal.workspaceKey)
+      })
     } catch (error) {
       logServerError("router.library.import", error, {
         requestId,
@@ -267,91 +242,84 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     }
 
     return finalizePrincipalResponse(
-      noStoreJson({
-        files: importedFiles,
-        requestId
-      },
-      undefined,
-      {
-        "X-Lyta-Request-Id": requestId
-      }),
+      noStoreJson(
+        {
+          files: importedFiles,
+          requestId
+        },
+        undefined,
+        {
+          "X-Lyta-Request-Id": requestId
+        }
+      ),
       principal
     )
   }
 
   if (url.pathname === "/library/delete" && request.method === "POST") {
-    return finalizePrincipalResponse(await forwardWorkspace(workspace, "/library/delete", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: await request.text()
-    }), principal)
+    return finalizePrincipalResponse(
+      await forwardWorkspace(workspace, "/library/delete", {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: await request.text()
+      }),
+      principal
+    )
   }
 
   if (url.pathname === "/context" && request.method === "GET") {
-    return finalizePrincipalResponse(
-      await forwardWorkspace(workspace, `/context${url.search}`),
-      principal
-    )
+    return finalizePrincipalResponse(await forwardWorkspace(workspace, `/context${url.search}`), principal)
   }
 
   if (url.pathname === "/context/records" && request.method === "POST") {
-    return finalizePrincipalResponse(await forwardWorkspace(workspace, "/context/records", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: await request.text()
-    }), principal)
-  }
-
-  if (url.pathname === "/context/records/delete" && request.method === "POST") {
-    return finalizePrincipalResponse(await forwardWorkspace(workspace, "/context/records/delete", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: await request.text()
-    }), principal)
-  }
-
-  if (url.pathname === "/context/manifests" && request.method === "GET") {
     return finalizePrincipalResponse(
-      await forwardWorkspace(workspace, `/context/manifests${url.search}`),
+      await forwardWorkspace(workspace, "/context/records", {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: await request.text()
+      }),
       principal
     )
   }
 
-  const sessionId =
-    normalizeSessionId(url.searchParams.get("session"))
+  if (url.pathname === "/context/records/delete" && request.method === "POST") {
+    return finalizePrincipalResponse(
+      await forwardWorkspace(workspace, "/context/records/delete", {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: await request.text()
+      }),
+      principal
+    )
+  }
+
+  if (url.pathname === "/context/manifests" && request.method === "GET") {
+    return finalizePrincipalResponse(await forwardWorkspace(workspace, `/context/manifests${url.search}`), principal)
+  }
+
+  const sessionId = normalizeSessionId(url.searchParams.get("session"))
 
   if (!sessionId) {
     return new Response("Session required", { status: 400 })
   }
 
-  const exists =
-    await workspaceHasSession(workspace, sessionId)
+  const exists = await workspaceHasSession(workspace, sessionId)
 
   if (!exists) {
     return new Response("Session not found", { status: 404 })
   }
 
   if (url.pathname === "/history" && request.method === "GET") {
-    return forwardConversationRequest(
-        env,
-        principal.workspaceKey,
-        sessionId,
-        "/history"
-      )
-      .then(response => finalizePrincipalResponse(response, principal))
+    return forwardConversationRequest(env, principal.workspaceKey, sessionId, "/history").then((response) =>
+      finalizePrincipalResponse(response, principal)
+    )
   }
 
   if (url.pathname === "/meta" && request.method === "GET") {
-    const response =
-      await forwardConversationRequest(
-        env,
-        principal.workspaceKey,
-        sessionId,
-        "/meta"
-      )
+    const response = await forwardConversationRequest(env, principal.workspaceKey, sessionId, "/meta")
 
     if (response.ok) {
-      const data = await response.clone().json() as { title?: string }
+      const data = (await response.clone().json()) as { title?: string }
 
       if (typeof data.title === "string" && data.title.trim()) {
         await workspace.fetch("https://internal/sessions/rename", {
@@ -369,24 +337,13 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   }
 
   if (url.pathname === "/stats" && request.method === "GET") {
-    return forwardConversationRequest(
-        env,
-        principal.workspaceKey,
-        sessionId,
-        "/stats"
-      )
-      .then(response => finalizePrincipalResponse(response, principal))
+    return forwardConversationRequest(env, principal.workspaceKey, sessionId, "/stats").then((response) =>
+      finalizePrincipalResponse(response, principal)
+    )
   }
 
   if (url.pathname === "/reset" && request.method === "POST") {
-    const response =
-      await forwardConversationRequest(
-        env,
-        principal.workspaceKey,
-        sessionId,
-        "/reset",
-        { method: "POST" }
-      )
+    const response = await forwardConversationRequest(env, principal.workspaceKey, sessionId, "/reset", { method: "POST" })
 
     await workspace.fetch("https://internal/sessions/rename", {
       method: "POST",
@@ -400,10 +357,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return finalizePrincipalResponse(response, principal)
   }
 
-  if (
-    (url.pathname === "/chat" || url.pathname === "/chat/stream") &&
-    request.method === "POST"
-  ) {
+  if ((url.pathname === "/chat" || url.pathname === "/chat/stream") && request.method === "POST") {
     const requestId = crypto.randomUUID()
     const body = await safeJson<ChatRequestBody>(request)
 
@@ -411,34 +365,29 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
       return new Response("Body missing", { status: 400 })
     }
 
-    const validationError =
-      validateChatRequest(body)
+    const validationError = validateChatRequest(body)
 
     if (validationError) {
       return new Response(validationError, { status: 400 })
     }
 
-    const payload =
-      normalizeChatRequest(body)
+    const payload = normalizeChatRequest(body)
 
     if (!payload.message && !payload.attachments.length) {
       return new Response("Message or attachment required", { status: 400 })
     }
 
-    const estimatedTokens = Math.max(1, Math.ceil((
-      payload.message.length +
-      payload.attachments.reduce((total, attachment) => total + (attachment.extractedText?.length || 0), 0)
-    ) / 4))
-    const tokenLimited = await enforceLimit(
-      env,
-      "chat-tokens",
-      principal.workspaceKey,
-      {
-        limit: principal.user.isGuest ? 40_000 : 240_000,
-        windowMs: 60 * 60_000,
-        cost: estimatedTokens
-      }
+    const estimatedTokens = Math.max(
+      1,
+      Math.ceil(
+        (payload.message.length + payload.attachments.reduce((total, attachment) => total + (attachment.extractedText?.length || 0), 0)) / 4
+      )
     )
+    const tokenLimited = await enforceLimit(env, "chat-tokens", principal.workspaceKey, {
+      limit: principal.user.isGuest ? 40_000 : 240_000,
+      windowMs: 60 * 60_000,
+      cost: estimatedTokens
+    })
     if (tokenLimited) return finalizePrincipalResponse(tokenLimited, principal)
 
     const requestMetadata = {
@@ -465,50 +414,41 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
 
     if (payload.attachments.length) {
       try {
-        await importAttachmentsIntoLibrary(
-          env,
-          workspace,
-          payload.attachments,
-          requestMetadata
-        )
+        await importAttachmentsIntoLibrary(env, workspace, payload.attachments, requestMetadata)
       } catch (error) {
         logServerError("router.chat.library.import", error, requestMetadata)
       }
     }
 
-    const libraryContext =
-      await searchWorkspaceLibrary(env, workspace, payload, requestMetadata)
+    const libraryContext = await searchWorkspaceLibrary(env, workspace, payload, requestMetadata)
 
     try {
-      const response =
-        await forwardConversationRequest(
-          env,
-          principal.workspaceKey,
-          sessionId,
-          url.pathname,
-          {
-            method: "POST",
-            headers: JSON_HEADERS,
-            body: JSON.stringify({
-              ...payload,
-              userId: principal.workspaceKey,
-              sessionId,
-              requestId,
-              workspaceContext: libraryContext.context,
-              citations: libraryContext.citations
-            })
-          },
-          requestId
-        )
+      const response = await forwardConversationRequest(
+        env,
+        principal.workspaceKey,
+        sessionId,
+        url.pathname,
+        {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({
+            ...payload,
+            userId: principal.workspaceKey,
+            sessionId,
+            requestId,
+            workspaceContext: libraryContext.context,
+            citations: libraryContext.citations
+          })
+        },
+        requestId
+      )
 
       return finalizePrincipalResponse(response, principal)
     } catch (error) {
       logServerError("router.chat.forward", error, requestMetadata)
 
       return finalizePrincipalResponse(
-        url.pathname === "/chat/stream"
-          ? serverErrorSse(CHAT_SERVER_ERROR, requestId)
-          : serverErrorJson(CHAT_SERVER_ERROR, requestId),
+        url.pathname === "/chat/stream" ? serverErrorSse(CHAT_SERVER_ERROR, requestId) : serverErrorJson(CHAT_SERVER_ERROR, requestId),
         principal
       )
     }
@@ -517,14 +457,9 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   return new Response("Not Found", { status: 404 })
 }
 
-async function handleAuth(
-  request: Request,
-  env: Env,
-  action: "register" | "login"
-) {
+async function handleAuth(request: Request, env: Env, action: "register" | "login") {
   try {
-    const body =
-      await safeJson<AuthPayload>(request)
+    const body = await safeJson<AuthPayload>(request)
 
     if (!body?.email || !body?.password) {
       return new Response("Email and password are required", {
@@ -532,43 +467,38 @@ async function handleAuth(
       })
     }
 
-    const authDirectory =
-      getAuthDirectoryStub(env)
+    const authDirectory = getAuthDirectoryStub(env)
 
-    const response =
-      await authDirectory.fetch(`https://internal/${action}`, {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({
-          email: body.email,
-          password: body.password
-        })
+    const response = await authDirectory.fetch(`https://internal/${action}`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        email: body.email,
+        password: body.password
       })
+    })
 
     if (!response.ok) {
       return copyResponse(response)
     }
 
-    const data =
-      await response.json() as {
-        token: string
-        user: AuthUser
-      }
+    const data = (await response.json()) as {
+      token: string
+      user: AuthUser
+    }
 
-    const workspace =
-      getWorkspaceStub(env, data.user.id)
+    const workspace = getWorkspaceStub(env, data.user.id)
 
-    const initializeResponse =
-      await workspace.fetch("https://internal/initialize", {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({
-          email: data.user.email,
-          scope: data.user.id,
-          name: normalizeProfileName(body.name, data.user.email),
-          workspace: normalizeWorkspaceName(body.workspace, body.name, data.user.email)
-        })
+    const initializeResponse = await workspace.fetch("https://internal/initialize", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        email: data.user.email,
+        scope: data.user.id,
+        name: normalizeProfileName(body.name, data.user.email),
+        workspace: normalizeWorkspaceName(body.workspace, body.name, data.user.email)
       })
+    })
 
     if (!initializeResponse.ok) {
       return new Response("Workspace setup failed", {
@@ -595,11 +525,9 @@ async function handleAuth(
 }
 
 async function handleLogout(request: Request, env: Env) {
-  const token =
-    getAuthToken(request)
+  const token = getAuthToken(request)
 
-  const authDirectory =
-    getAuthDirectoryStub(env)
+  const authDirectory = getAuthDirectoryStub(env)
 
   await authDirectory.fetch("https://internal/logout", {
     method: "POST",
@@ -621,27 +549,23 @@ async function handleLogout(request: Request, env: Env) {
 }
 
 async function resolvePrincipal(request: Request, env: Env): Promise<Principal> {
-  const token =
-    getAuthToken(request)
+  const token = getAuthToken(request)
 
   if (token) {
-    const authDirectory =
-      getAuthDirectoryStub(env)
+    const authDirectory = getAuthDirectoryStub(env)
 
-    const response =
-      await authDirectory.fetch("https://internal/session", {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({
-          token
-        })
+    const response = await authDirectory.fetch("https://internal/session", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        token
       })
+    })
 
     if (response.ok) {
-      const data =
-        await response.json() as {
-          user: AuthUser
-        }
+      const data = (await response.json()) as {
+        user: AuthUser
+      }
 
       return {
         user: {
@@ -659,12 +583,8 @@ async function resolvePrincipal(request: Request, env: Env): Promise<Principal> 
   return createGuestPrincipal(request)
 }
 
-async function createGuestPrincipal(
-  request: Request,
-  cookieHeaders: string[] = []
-): Promise<Principal> {
-  let guestToken =
-    getGuestToken(request)
+async function createGuestPrincipal(request: Request, cookieHeaders: string[] = []): Promise<Principal> {
+  let guestToken = getGuestToken(request)
 
   if (!guestToken) {
     guestToken = crypto.randomUUID().replace(/-/g, "")
@@ -682,10 +602,7 @@ async function createGuestPrincipal(
   }
 }
 
-async function ensureWorkspaceInitialized(
-  workspace: DurableObjectStub,
-  user: AuthUser
-) {
+async function ensureWorkspaceInitialized(workspace: DurableObjectStub, user: AuthUser) {
   await workspace.fetch("https://internal/initialize", {
     method: "POST",
     headers: JSON_HEADERS,
@@ -706,45 +623,28 @@ async function forwardConversationRequest(
   init?: RequestInit,
   requestId?: string
 ) {
-  const conversation =
-    getConversationStub(env, userId, sessionId)
+  const conversation = getConversationStub(env, userId, sessionId)
 
-  const response =
-    await conversation.fetch(`https://internal${path}`, init)
+  const response = await conversation.fetch(`https://internal${path}`, init)
 
-  return copyResponse(
-    response,
-    requestId ? { "X-Lyta-Request-Id": requestId } : undefined
-  )
+  return copyResponse(response, requestId ? { "X-Lyta-Request-Id": requestId } : undefined)
 }
 
-async function forwardWorkspace(
-  workspace: DurableObjectStub,
-  path: string,
-  init?: RequestInit
-) {
-  const response =
-    await workspace.fetch(`https://internal${path}`, init)
+async function forwardWorkspace(workspace: DurableObjectStub, path: string, init?: RequestInit) {
+  const response = await workspace.fetch(`https://internal${path}`, init)
 
   return copyResponse(response)
 }
 
-async function enforceLimit(
-  env: Env,
-  category: string,
-  identity: string,
-  config: { limit: number; windowMs: number; cost?: number }
-) {
+async function enforceLimit(env: Env, category: string, identity: string, config: { limit: number; windowMs: number; cost?: number }) {
   const startedAt = Date.now()
-  const stub = env.RATE_LIMITER.get(
-    env.RATE_LIMITER.idFromName(`${category}:${identity}`)
-  )
+  const stub = env.RATE_LIMITER.get(env.RATE_LIMITER.idFromName(`${category}:${identity}`))
   const response = await stub.fetch("https://internal/consume", {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify(config)
   })
-  const result = await response.json() as { allowed?: boolean; retryAfter?: number }
+  const result = (await response.json()) as { allowed?: boolean; retryAfter?: number }
 
   recordOperation({
     route: category,
@@ -765,44 +665,33 @@ async function enforceLimit(
 }
 
 function getAuthDirectoryStub(env: Env) {
-  return env.AUTH_DIRECTORY.get(
-    env.AUTH_DIRECTORY.idFromName("global")
-  )
+  return env.AUTH_DIRECTORY.get(env.AUTH_DIRECTORY.idFromName("global"))
 }
 
 function getWorkspaceStub(env: Env, userId: string) {
-  return env.WORKSPACE.get(
-    env.WORKSPACE.idFromName(userId)
-  )
+  return env.WORKSPACE.get(env.WORKSPACE.idFromName(userId))
 }
 
 function getConversationStub(env: Env, userId: string, sessionId: string) {
-  return env.CONVERSATION.get(
-    env.CONVERSATION.idFromName(`${userId}:${sessionId}`)
-  )
+  return env.CONVERSATION.get(env.CONVERSATION.idFromName(`${userId}:${sessionId}`))
 }
 
-async function workspaceHasSession(
-  workspace: DurableObjectStub,
-  sessionId: string
-) {
-  const response =
-    await workspace.fetch("https://internal/sessions/has", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({
-        id: sessionId
-      })
+async function workspaceHasSession(workspace: DurableObjectStub, sessionId: string) {
+  const response = await workspace.fetch("https://internal/sessions/has", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      id: sessionId
     })
+  })
 
   if (!response.ok) {
     return false
   }
 
-  const data =
-    await response.json() as {
-      exists?: boolean
-    }
+  const data = (await response.json()) as {
+    exists?: boolean
+  }
 
   return Boolean(data.exists)
 }
@@ -813,8 +702,7 @@ async function importAttachmentsIntoLibrary(
   attachments: ChatAttachment[],
   metadata: Record<string, unknown> = {}
 ) {
-  const freshAttachments =
-    attachments.filter(attachment => !attachment.libraryFileId)
+  const freshAttachments = attachments.filter((attachment) => !attachment.libraryFileId)
 
   if (!freshAttachments.length) {
     return []
@@ -824,7 +712,7 @@ async function importAttachmentsIntoLibrary(
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify({
-      files: freshAttachments.map(attachment => ({ size: attachment.size }))
+      files: freshAttachments.map((attachment) => ({ size: attachment.size }))
     })
   })
 
@@ -843,8 +731,7 @@ async function importAttachmentsIntoLibrary(
   const seen = new Set<string>()
 
   for (const attachment of freshAttachments) {
-    const signature =
-      await createAttachmentSignature(attachment)
+    const signature = await createAttachmentSignature(attachment)
 
     if (seen.has(signature)) {
       continue
@@ -856,21 +743,13 @@ async function importAttachmentsIntoLibrary(
       signature
     })
 
-    if (
-      attachment.kind === "document" &&
-      typeof attachment.extractedText === "string" &&
-      attachment.extractedText.trim()
-    ) {
-      const parts =
-        chunkDocumentText(attachment.extractedText)
+    if (attachment.kind === "document" && typeof attachment.extractedText === "string" && attachment.extractedText.trim()) {
+      const parts = chunkDocumentText(attachment.extractedText)
 
       let vectors: number[][] = []
 
       try {
-        vectors =
-          await Promise.all(
-            parts.map(text => createEmbedding(env, text))
-          )
+        vectors = await Promise.all(parts.map((text) => createEmbedding(env, text)))
       } catch (error) {
         logServerError("router.library.import.embeddings", error, {
           ...metadata,
@@ -896,24 +775,22 @@ async function importAttachmentsIntoLibrary(
     return []
   }
 
-  const response =
-    await workspace.fetch("https://internal/library/upsert", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({
-        files,
-        chunks
-      })
+  const response = await workspace.fetch("https://internal/library/upsert", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      files,
+      chunks
     })
+  })
 
   if (!response.ok) {
     throw new Error(`Library storage rejected the import (${response.status}).`)
   }
 
-  const data =
-    await response.json() as {
-      files?: unknown[]
-    }
+  const data = (await response.json()) as {
+    files?: unknown[]
+  }
 
   return Array.isArray(data.files) ? data.files : []
 }
@@ -931,8 +808,7 @@ async function searchWorkspaceLibrary(
     attachments: payload.attachments
   }
 
-  const query =
-    buildRetrievalQuery(userMessage)
+  const query = buildRetrievalQuery(userMessage)
 
   if (!query) {
     return {
@@ -942,19 +818,17 @@ async function searchWorkspaceLibrary(
   }
 
   try {
-    const queryVector =
-      await createEmbedding(env, query)
+    const queryVector = await createEmbedding(env, query)
 
-    const response =
-      await workspace.fetch("https://internal/library/search", {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({
-          queryVector,
-          topK: 4,
-          requestId: typeof metadata.requestId === "string" ? metadata.requestId : undefined
-        })
+    const response = await workspace.fetch("https://internal/library/search", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        queryVector,
+        topK: 4,
+        requestId: typeof metadata.requestId === "string" ? metadata.requestId : undefined
       })
+    })
 
     if (!response.ok) {
       logServerError("router.library.search.status", new Error("Library search failed."), {
@@ -969,21 +843,14 @@ async function searchWorkspaceLibrary(
       }
     }
 
-    const data =
-      await response.json() as {
-        context?: string
-        citations?: LibraryCitation[]
-      }
+    const data = (await response.json()) as {
+      context?: string
+      citations?: LibraryCitation[]
+    }
 
     return {
-      context:
-        typeof data.context === "string"
-          ? data.context
-          : "",
-      citations:
-        Array.isArray(data.citations)
-          ? data.citations
-          : []
+      context: typeof data.context === "string" ? data.context : "",
+      citations: Array.isArray(data.citations) ? data.citations : []
     }
   } catch (error) {
     logServerError("router.library.search", error, {
@@ -999,23 +866,22 @@ async function searchWorkspaceLibrary(
 }
 
 async function createAttachmentSignature(attachment: ChatAttachment) {
-  const digest =
-    await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode([
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      [
         attachment.kind,
         attachment.name,
         attachment.mimeType,
         String(attachment.size),
         attachment.summary || "",
-        attachment.kind === "image"
-          ? attachment.dataUrl || ""
-          : attachment.extractedText || ""
-      ].join("\n"))
+        attachment.kind === "image" ? attachment.dataUrl || "" : attachment.extractedText || ""
+      ].join("\n")
     )
+  )
 
   return Array.from(new Uint8Array(digest))
-    .map(byte => byte.toString(16).padStart(2, "0"))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")
 }
 
@@ -1028,35 +894,28 @@ function normalizeSessionId(value: string | undefined | null) {
 }
 
 function normalizeProfileName(value: string | undefined, email: string) {
-  const cleaned =
-    normalizeInlineText(value)
+  const cleaned = normalizeInlineText(value)
 
   if (cleaned) {
     return cleaned
   }
 
-  const localPart =
-    email.split("@")[0]
-      .replace(/[._-]+/g, " ")
-      .trim()
+  const localPart = email
+    .split("@")[0]
+    .replace(/[._-]+/g, " ")
+    .trim()
 
   return titleCase(localPart) || "Guest User"
 }
 
-function normalizeWorkspaceName(
-  value: string | undefined,
-  name: string | undefined,
-  email: string
-) {
-  const cleaned =
-    normalizeInlineText(value)
+function normalizeWorkspaceName(value: string | undefined, name: string | undefined, email: string) {
+  const cleaned = normalizeInlineText(value)
 
   if (cleaned) {
     return cleaned
   }
 
-  const derivedName =
-    normalizeProfileName(name, email)
+  const derivedName = normalizeProfileName(name, email)
 
   if (derivedName && derivedName !== "Guest User") {
     return `${derivedName} Studio`.slice(0, 50)
@@ -1077,20 +936,15 @@ function titleCase(value: string) {
   return value
     .split(" ")
     .filter(Boolean)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ")
     .slice(0, 40)
 }
 
-function noStoreJson(
-  body: unknown,
-  mergeBody?: Record<string, unknown>,
-  headers?: Record<string, string>,
-  status = 200
-) {
+function noStoreJson(body: unknown, mergeBody?: Record<string, unknown>, headers?: Record<string, string>, status = 200) {
   return new Response(
     JSON.stringify({
-      ...(typeof body === "object" && body ? body as Record<string, unknown> : {}),
+      ...(typeof body === "object" && body ? (body as Record<string, unknown>) : {}),
       ...(mergeBody || {})
     }),
     {
@@ -1135,10 +989,7 @@ function serverErrorSse(message: string, requestId: string) {
   )
 }
 
-function copyResponse(
-  response: Response,
-  extraHeaders?: Record<string, string>
-) {
+function copyResponse(response: Response, extraHeaders?: Record<string, string>) {
   const headers = new Headers(response.headers)
   headers.set("Cache-Control", "no-store")
   Object.entries(extraHeaders || {}).forEach(([key, value]) => {
@@ -1159,7 +1010,7 @@ function finalizePrincipalResponse(response: Response, principal: Principal) {
 
   const headers = new Headers(response.headers)
 
-  principal.cookieHeaders.forEach(value => {
+  principal.cookieHeaders.forEach((value) => {
     headers.append("Set-Cookie", value)
   })
 

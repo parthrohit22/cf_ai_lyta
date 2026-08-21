@@ -1,10 +1,4 @@
-import {
-  createId,
-  createPasswordRecord,
-  createSessionToken,
-  hashToken,
-  verifyPassword
-} from "../auth/crypto"
+import { createId, createPasswordRecord, createSessionToken, hashToken, verifyPassword } from "../auth/crypto"
 
 interface AuthUserRecord {
   id: string
@@ -24,15 +18,14 @@ interface AuthSessionRecord {
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30
 
 export class AuthDirectory {
-
   state: DurableObjectState
   private lock: Promise<void> = Promise.resolve()
 
-  constructor(state: DurableObjectState){
+  constructor(state: DurableObjectState) {
     this.state = state
   }
 
-  async fetch(request: Request): Promise<Response>{
+  async fetch(request: Request): Promise<Response> {
     await this.migrateLegacyRecords()
     const path = new URL(request.url).pathname
 
@@ -57,7 +50,10 @@ export class AuthDirectory {
 
   private async queue<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.lock.then(fn)
-    this.lock = next.then(() => {}, () => {})
+    this.lock = next.then(
+      () => {},
+      () => {}
+    )
     return next
   }
 
@@ -73,15 +69,13 @@ export class AuthDirectory {
   }
 
   private async register(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       email?: string
       password?: string
     }
 
     const email = normalizeEmail(body.email)
-    const password = typeof body.password === "string"
-      ? body.password
-      : ""
+    const password = typeof body.password === "string" ? body.password : ""
 
     if (!email) {
       return new Response("Email is required", { status: 400 })
@@ -92,18 +86,14 @@ export class AuthDirectory {
     }
 
     if (password.length < 8) {
-      return new Response(
-        "Password must be at least 8 characters",
-        { status: 400 }
-      )
+      return new Response("Password must be at least 8 characters", { status: 400 })
     }
 
     if (await this.state.storage.get<AuthUserRecord>(userKey(email))) {
       return new Response("Account already exists", { status: 409 })
     }
 
-    const passwordRecord =
-      await createPasswordRecord(password)
+    const passwordRecord = await createPasswordRecord(password)
 
     const user: AuthUserRecord = {
       id: createId("user"),
@@ -127,15 +117,13 @@ export class AuthDirectory {
   }
 
   private async login(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       email?: string
       password?: string
     }
 
     const email = normalizeEmail(body.email)
-    const password = typeof body.password === "string"
-      ? body.password
-      : ""
+    const password = typeof body.password === "string" ? body.password : ""
 
     if (!email || !password) {
       return new Response("Email and password are required", {
@@ -170,7 +158,7 @@ export class AuthDirectory {
   }
 
   private async validateSession(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       token?: string
     }
 
@@ -199,7 +187,7 @@ export class AuthDirectory {
   }
 
   private async logout(request: Request) {
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       token?: string
     }
 
@@ -267,8 +255,12 @@ export class AuthDirectory {
   }
 }
 
-function userKey(email: string) { return `user:${email}` }
-function sessionKey(tokenHash: string) { return `session:${tokenHash}` }
+function userKey(email: string) {
+  return `user:${email}`
+}
+function sessionKey(tokenHash: string) {
+  return `session:${tokenHash}`
+}
 
 function normalizeEmail(value: string | undefined) {
   if (typeof value !== "string") {

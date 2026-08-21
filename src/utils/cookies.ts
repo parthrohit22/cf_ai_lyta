@@ -11,42 +11,22 @@ export function getGuestToken(request: Request): string | null {
 }
 
 export function setAuthCookie(token: string, requestUrl?: string): string {
-  return buildCookie([
-    `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`,
-    "Path=/",
-    `Max-Age=${AUTH_COOKIE_MAX_AGE}`,
-    "HttpOnly",
-    "SameSite=Lax"
-  ], requestUrl)
+  return buildCookie(
+    [`${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`, "Path=/", `Max-Age=${AUTH_COOKIE_MAX_AGE}`, "HttpOnly", "SameSite=Lax"],
+    requestUrl
+  )
 }
 
 export function clearAuthCookie(requestUrl?: string): string {
-  return buildCookie([
-    `${AUTH_COOKIE_NAME}=`,
-    "Path=/",
-    "Max-Age=0",
-    "HttpOnly",
-    "SameSite=Lax"
-  ], requestUrl)
+  return buildCookie([`${AUTH_COOKIE_NAME}=`, "Path=/", "Max-Age=0", "HttpOnly", "SameSite=Lax"], requestUrl)
 }
 
 export function setGuestCookie(token: string, requestUrl?: string): string {
-  return buildCookie([
-    `${GUEST_COOKIE_NAME}=${encodeURIComponent(token)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax"
-  ], requestUrl)
+  return buildCookie([`${GUEST_COOKIE_NAME}=${encodeURIComponent(token)}`, "Path=/", "HttpOnly", "SameSite=Lax"], requestUrl)
 }
 
 export function clearGuestCookie(requestUrl?: string): string {
-  return buildCookie([
-    `${GUEST_COOKIE_NAME}=`,
-    "Path=/",
-    "Max-Age=0",
-    "HttpOnly",
-    "SameSite=Lax"
-  ], requestUrl)
+  return buildCookie([`${GUEST_COOKIE_NAME}=`, "Path=/", "Max-Age=0", "HttpOnly", "SameSite=Lax"], requestUrl)
 }
 
 function getCookieValue(request: Request, name: string) {
@@ -56,9 +36,7 @@ function getCookieValue(request: Request, name: string) {
     return null
   }
 
-  const match = cookie.match(
-    new RegExp(`${name}=([^;]+)`)
-  )
+  const match = cookie.match(new RegExp(`${name}=([^;]+)`))
 
   return match ? decodeURIComponent(match[1]) : null
 }

@@ -4,9 +4,14 @@
 	"private": true,
 	"scripts": {
 		"build:client": "tsc -p tsconfig.client.json",
-		"check": "npm run build:client && npm test && tsc --noEmit && tsc -p tsconfig.client.json --noEmit && node --check pages/app-core.js && node --check pages/app.js && node --check pages/app-attachments.js && git diff --exit-code -- pages/app-core.js && npm audit --omit=dev --audit-level=high",
+		"format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"pages-src/**/*.ts\"",
+		"format:write": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"pages-src/**/*.ts\"",
+		"test:unit": "tsx --test tests/unit/**/*.test.ts",
+		"test:integration": "tsx --test tests/integration/**/*.test.ts",
+		"test:smoke": "tsx --test tests/smoke/**/*.test.ts",
+		"check": "npm run format:check && npm run build:client && npm test && tsc --noEmit && tsc -p tsconfig.client.json --noEmit && node --check pages/app-core.js && node --check pages/app.js && node --check pages/app-attachments.js && git diff --exit-code -- pages/app-core.js && npm audit --omit=dev --audit-level=high",
 		"deploy": "npm run build:client && wrangler deploy",
-		"test": "npm run build:client && tsx --test tests/**/*.test.ts",
+		"test": "npm run build:client && npm run test:unit && npm run test:integration && npm run test:smoke",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types"
@@ -14,6 +19,7 @@
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20260312.1",
 		"@types/node": "^25.2.3",
+		"prettier": "^3.9.6",
 		"tsx": "^4.21.0",
 		"typescript": "^5.5.2",
 		"wrangler": "^4.64.0"

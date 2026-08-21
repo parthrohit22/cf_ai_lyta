@@ -67,11 +67,7 @@ export function chunkDocumentText(text: string) {
   return chunks.slice(0, 24)
 }
 
-export function buildLibrarySearchResult(
-  queryVector: number[],
-  chunks: WorkspaceChunk[],
-  topK: number = 4
-): LibrarySearchResult {
+export function buildLibrarySearchResult(queryVector: number[], chunks: WorkspaceChunk[], topK: number = 4): LibrarySearchResult {
   if (!chunks.length) {
     return {
       context: "",
@@ -92,7 +88,7 @@ export function buildLibrarySearchResult(
 
   return {
     context: citations
-      .map(citation => {
+      .map((citation) => {
         return `<lyta-source id="${citation.id}" file="${citation.fileName}">\n${citation.snippet}\n</lyta-source>`
       })
       .join("\n\n"),
