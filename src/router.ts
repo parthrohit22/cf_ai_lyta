@@ -517,7 +517,7 @@ async function handleAuth(request: Request, env: Env, action: "register" | "logi
       }
     )
   } catch (error) {
-    console.error("handleAuth failure", error)
+    logServerError(`router.auth.${action}`, error)
     return new Response("Unable to create account right now", {
       status: 500
     })

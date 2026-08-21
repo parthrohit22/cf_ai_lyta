@@ -1,4 +1,5 @@
 import { createId, createPasswordRecord, createSessionToken, hashToken, verifyPassword } from "../auth/crypto"
+import { logServerError } from "../utils/serverErrors"
 
 interface AuthUserRecord {
   id: string
@@ -61,7 +62,7 @@ export class AuthDirectory {
     try {
       return await fn()
     } catch (error) {
-      console.error("AuthDirectory failure", error)
+      logServerError("authDirectory.guard", error)
       return new Response("Authentication service failed", {
         status: 500
       })
