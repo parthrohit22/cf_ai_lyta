@@ -182,7 +182,6 @@ export class Conversation {
       return this.streamChat({
         messages,
         mode,
-        recent: history,
         userMessage,
         citations,
         evidenceStatus,
@@ -254,7 +253,6 @@ export class Conversation {
   private async streamChat(input: {
     messages: AiChatMessage[]
     mode: ChatMessageRecord["mode"]
-    recent: ChatMessageRecord[]
     userMessage: ChatMessageRecord
     citations: ReturnType<typeof normalizeLibraryCitations>
     evidenceStatus: "available" | "insufficient"
@@ -317,15 +315,23 @@ export class Conversation {
 
         const followups = await this.generateFollowups(input.userMessage, assistantText, input.mode, input.requestMetadata)
 
-        input.recent.push(
-          createAssistantMessage(assistantText, {
-            mode: input.mode,
-            citations: input.citations,
-            followups
-          })
-        )
+        const assistantMessage = createAssistantMessage(assistantText, {
+          mode: input.mode,
+          citations: input.citations,
+          followups
+        })
 
-        await this.persistConversation(input.recent, input.requestMetadata)
+        // Routed through the same queue() lock that serializes handleChat():
+        // this background completion can finish well after a later /chat or
+        // /chat/stream request has already started, so it must reload the
+        // canonical history fresh rather than persist the stale snapshot it
+        // started with, or it would clobber that later request's write.
+        await this.queue(async () => {
+          const canonicalHistory = await this.loadCanonicalHistory()
+          canonicalHistory.push(assistantMessage)
+          await this.persistConversation(canonicalHistory, input.requestMetadata)
+        })
+
         await this.touchWorkspaceSession(input.userId, input.sessionId, input.requestMetadata)
 
         await writer.write(
