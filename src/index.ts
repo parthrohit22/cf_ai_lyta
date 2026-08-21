@@ -14,6 +14,7 @@ export interface Env {
   SESSION_INDEX: DurableObjectNamespace
   AUTH_DIRECTORY: DurableObjectNamespace
   WORKSPACE: DurableObjectNamespace
+  ARTIFACTS: R2Bucket
 }
 
 export default {

@@ -49,5 +49,13 @@
     "directory": "./pages"
   },
 
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "lyta-artifacts-preview",
+      "preview_bucket_name": "lyta-artifacts-preview"
+    }
+  ],
+
   "compatibility_flags": ["nodejs_compat"]
 }
