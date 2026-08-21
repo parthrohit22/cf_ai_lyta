@@ -255,6 +255,27 @@ reviewers, then add these environment secrets:
 The workflow never prints either value. It installs from `package-lock.json`,
 reruns the complete quality gate, and only then calls Wrangler to deploy.
 
+## Project Context and Provenance
+
+LYTA stores workspace source payloads in private R2 objects and treats chunks,
+findings, decisions, and user-approved summaries as provider-independent
+context. A model request receives only retrieval-selected evidence, never a
+full workspace dump. Each selection creates an ID-only context manifest with a
+policy version; it contains no source text or query.
+
+Authenticated workspace APIs support inspection and management:
+
+- `GET /context` lists context metadata; add `?includeContent=true` to inspect
+  saved findings, decisions, and summaries.
+- `POST /context/records` creates or updates a finding, decision, or approved
+  summary with source/chunk provenance.
+- `POST /context/records/delete` deletes a saved context record.
+- `GET /context/manifests` lists non-sensitive selection audit records.
+
+Deleting a source also removes derived context records linked to that source
+and returns the affected-record count. Historical ID-only manifests remain as
+audit evidence; deleted source text is not retrievable.
+
 ## Roadmap Ideas
 
 - OCR for scanned PDFs and image-heavy documents

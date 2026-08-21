@@ -6,6 +6,9 @@ export interface WorkspaceChunk {
   fileName: string
   text: string
   vector: number[]
+  /** Immutable source-version identifier used for provenance and deletion. */
+  sourceVersionId?: string
+  createdAt?: string
 }
 
 export interface LibraryCitation {
