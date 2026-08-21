@@ -63,7 +63,10 @@ window.LytaAttachments = (() => {
     }
 
     const pdf = await window.pdfjsLib.getDocument({
-      data: await file.arrayBuffer()
+      data: await file.arrayBuffer(),
+      // Do not load a separate worker from an unpinned URL. Files are already
+      // bounded by the client-side extraction limits below.
+      disableWorker: true
     }).promise
 
     let extractedText = ""

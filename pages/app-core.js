@@ -220,23 +220,43 @@ window.LytaCore = (() => {
             return `${Math.round(delta / hour)}h ago`;
         return `${Math.round(delta / day)}d ago`;
     }
-    function renderMarkdown(markdown, fallback = "") {
+    function renderMarkdown(markdown, citations = [], fallback = "") {
+        // Model and source-derived text is only ever inserted as Text nodes. This
+        // does not rely on a separately loaded sanitizer, so a script load failure
+        // leaves HTML-looking output inert.
         const source = markdown || fallback;
-        const rendered = window.marked?.parse(source) || escapeHtml(source);
-        return window.DOMPurify?.sanitize(rendered) || rendered;
-    }
-    function applyCitationMarkers(html, citations) {
-        if (!html || !citations.length) {
-            return html;
+        const fragment = document.createDocumentFragment();
+        const citationByLabel = new Map(citations.map((citation, index) => [citation.label, { citation, index }]));
+        const labels = [...citationByLabel.keys()]
+            .filter(Boolean)
+            .sort((left, right) => right.length - left.length);
+        if (!labels.length) {
+            appendInertText(fragment, source);
+            return fragment;
         }
-        let result = html;
-        citations.forEach((citation, index) => {
-            const pattern = new RegExp(`\\[${escapeRegExp(citation.label)}\\]`, "g");
-            const marker = `<button type="button" class="citation-marker" data-citation-index="${index}" ` +
-                `aria-label="Jump to source ${index + 1}: ${escapeHtml(citation.fileName)}">${index + 1}</button>`;
-            result = result.replace(pattern, marker);
-        });
-        return result;
+        const markerPattern = new RegExp(`(${labels.map(label => `\\[${escapeRegExp(label)}\\]`).join("|")})`, "g");
+        let cursor = 0;
+        for (const match of source.matchAll(markerPattern)) {
+            const start = match.index || 0;
+            appendInertText(fragment, source.slice(cursor, start));
+            const label = match[0].slice(1, -1);
+            const entry = citationByLabel.get(label);
+            if (entry) {
+                const marker = document.createElement("button");
+                marker.type = "button";
+                marker.className = "citation-marker";
+                marker.dataset.citationIndex = String(entry.index);
+                marker.setAttribute("aria-label", `Jump to source ${entry.index + 1}: ${entry.citation.fileName}`);
+                marker.textContent = String(entry.index + 1);
+                fragment.appendChild(marker);
+            }
+            else {
+                appendInertText(fragment, match[0]);
+            }
+            cursor = start + match[0].length;
+        }
+        appendInertText(fragment, source.slice(cursor));
+        return fragment;
     }
     function getFileTypeGlyph(mimeType, kind) {
         if (kind === "image") {
@@ -280,20 +300,19 @@ window.LytaCore = (() => {
     function hasDraggedFiles(event) {
         return Array.from(event.dataTransfer?.types || []).includes("Files");
     }
-    function escapeHtml(text) {
-        return (text || "").replace(/[&<>"']/g, character => {
-            const entities = {
-                "&": "&amp;",
-                "<": "&lt;",
-                ">": "&gt;",
-                "\"": "&quot;",
-                "'": "&#39;"
-            };
-            return entities[character] || character;
-        });
-    }
     function escapeRegExp(text) {
         return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+    function appendInertText(target, text) {
+        const lines = text.replace(/\r\n?/g, "\n").split("\n");
+        lines.forEach((line, index) => {
+            if (index) {
+                target.appendChild(document.createElement("br"));
+            }
+            if (line) {
+                target.appendChild(document.createTextNode(line));
+            }
+        });
     }
     function getErrorMessage(error, fallback = "Something went wrong.") {
         return error instanceof Error && error.message ? error.message : fallback;
@@ -389,7 +408,6 @@ window.LytaCore = (() => {
         formatBytes,
         formatRelativeTime,
         renderMarkdown,
-        applyCitationMarkers,
         getFileTypeGlyph,
         setStatusState,
         getInitials,
