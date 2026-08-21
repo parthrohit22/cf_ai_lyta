@@ -782,7 +782,7 @@ async function importAttachmentsIntoLibrary(
     })
 
   if (!response.ok) {
-    throw new Error(await response.text() || "Unable to store files.")
+    throw new Error(`Library storage rejected the import (${response.status}).`)
   }
 
   const data =
