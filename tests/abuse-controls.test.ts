@@ -51,3 +51,25 @@ test("auth uses keyed records and expired sessions are pruned without another lo
   const validated = await auth.fetch(new Request("https://internal/session", { method: "POST", body: JSON.stringify({ token }) }))
   assert.equal(validated.status, 401)
 })
+
+test("concurrent sessions remain bound to their own keyed user records", async () => {
+  const { state } = storageState()
+  const auth = new AuthDirectory(state as unknown as DurableObjectState)
+  const register = (email: string) => auth.fetch(new Request("https://internal/register", {
+    method: "POST", body: JSON.stringify({ email, password: "password-123" })
+  }))
+  const registrations = await Promise.all([
+    register("alpha@example.test"),
+    register("beta@example.test")
+  ])
+  const tokens = await Promise.all(registrations.map(async response => (
+    (await response.json() as { token: string }).token
+  )))
+  const sessions = await Promise.all(tokens.map(token => auth.fetch(new Request("https://internal/session", {
+    method: "POST", body: JSON.stringify({ token })
+  }))))
+  const users = await Promise.all(sessions.map(async response => (
+    (await response.json() as { user: { email: string } }).user.email
+  )))
+  assert.deepEqual(users.sort(), ["alpha@example.test", "beta@example.test"])
+})
