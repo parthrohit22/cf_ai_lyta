@@ -3,6 +3,7 @@ import { Conversation } from "./durable/conversation"
 import { SessionIndex } from "./durable/sessionIndex"
 import { AuthDirectory } from "./durable/authDirectory"
 import { Workspace } from "./durable/workspace"
+import { RateLimiter } from "./durable/rateLimiter"
 
 export interface WorkersAI {
   run(model: string, input: unknown): Promise<unknown>
@@ -15,6 +16,7 @@ export interface Env {
   AUTH_DIRECTORY: DurableObjectNamespace
   WORKSPACE: DurableObjectNamespace
   ARTIFACTS: R2Bucket
+  RATE_LIMITER: DurableObjectNamespace
 }
 
 export default {
@@ -23,4 +25,4 @@ export default {
   }
 }
 
-export { Conversation, SessionIndex, AuthDirectory, Workspace }
+export { Conversation, SessionIndex, AuthDirectory, Workspace, RateLimiter }
