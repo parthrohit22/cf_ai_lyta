@@ -36,3 +36,35 @@ test("artifact bodies live in R2 while workspace metadata, retrieval, and deleti
   assert.equal(objects.size, 0)
   assert.equal(JSON.stringify(values.get("libraryChunks")), "[]")
 })
+
+test("legacy inline artifact payloads migrate to R2 before bootstrap returns metadata", async () => {
+  const values = new Map<string, unknown>([["library", [{
+    id: "file-legacy",
+    signature: "legacy-hash",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    attachment: {
+      kind: "image", name: "legacy.png", mimeType: "image/png", size: 12,
+      dataUrl: "data:image/png;base64,legacy-payload"
+    }
+  }]]])
+  const objects = new Map<string, string>()
+  const workspace = new Workspace({ storage: {
+    get: async <T>(key: string) => values.get(key) as T | undefined,
+    put: async (key: string, value: unknown) => values.set(key, value)
+  } } as unknown as DurableObjectState, {
+    ARTIFACTS: {
+      put: async (key: string, value: string) => { objects.set(key, value); return null },
+      delete: async () => undefined
+    }
+  } as never)
+
+  await workspace.fetch(new Request("https://internal/initialize", { method: "POST", body: JSON.stringify({ scope: "workspace-legacy" }) }))
+  const bootstrap = await workspace.fetch(new Request("https://internal/bootstrap"))
+  const data = await bootstrap.json() as { library: Array<Record<string, unknown>> }
+
+  assert.equal(data.library.length, 1)
+  assert.doesNotMatch(JSON.stringify(values.get("library")), /legacy-payload|data:image/)
+  assert.equal(objects.size, 1)
+  assert.match([...objects.values()][0] || "", /legacy-payload/)
+})

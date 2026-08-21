@@ -52,6 +52,15 @@ type IncomingLibraryAttachment = StoredLibraryFile["attachment"] & {
   extractedText?: string
 }
 
+type LegacyStoredLibraryFile = Partial<StoredLibraryFile> & {
+  id: string
+  signature: string
+  attachment: StoredLibraryFile["attachment"] & {
+    dataUrl?: string
+    extractedText?: string
+  }
+}
+
 const MAX_SESSIONS = 80
 const MAX_LIBRARY_FILES = 40
 const MAX_LIBRARY_CHUNKS = 300
@@ -154,6 +163,12 @@ export class Workspace {
       (await this.state.storage.get<WorkspaceProfile>("profile")) || null
 
     if (profile) {
+      if (body.scope && !await this.state.storage.get("workspaceScope")) {
+        await this.state.storage.put(
+          "workspaceScope",
+          normalizeText(body.scope, 120) || "legacy"
+        )
+      }
       return Response.json({ ok: true })
     }
 
@@ -198,8 +213,7 @@ export class Workspace {
         (await this.state.storage.get<WorkspaceSession[]>("sessions")) || []
       )
 
-    const library =
-      (await this.state.storage.get<StoredLibraryFile[]>("library")) || []
+    const library = await this.loadLibrary()
 
     return Response.json({
       profile,
@@ -391,8 +405,7 @@ export class Workspace {
   }
 
   private async getLibrary(request: Request) {
-    const files =
-      (await this.state.storage.get<StoredLibraryFile[]>("library")) || []
+    const files = await this.loadLibrary()
     const url = new URL(request.url)
     const offset = Math.max(0, Number.parseInt(url.searchParams.get("cursor") || "0", 10) || 0)
     const limit = Math.min(
@@ -413,8 +426,7 @@ export class Workspace {
     const incomingBytes = incoming.reduce((total, file) => total + (
       Number.isFinite(file?.size) ? Math.max(0, Number(file.size)) : 0
     ), 0)
-    const library =
-      (await this.state.storage.get<StoredLibraryFile[]>("library")) || []
+    const library = await this.loadLibrary()
     const usedBytes = library.reduce((total, file) => total + file.attachment.size, 0)
 
     if (
@@ -436,8 +448,7 @@ export class Workspace {
     const incomingFiles = Array.isArray(body.files) ? body.files : []
     const incomingChunks = Array.isArray(body.chunks) ? body.chunks : []
 
-    let library =
-      (await this.state.storage.get<StoredLibraryFile[]>("library")) || []
+    let library = await this.loadLibrary()
     let chunks =
       (await this.state.storage.get<WorkspaceChunk[]>("libraryChunks")) || []
 
@@ -538,8 +549,7 @@ export class Workspace {
       return new Response("Invalid file", { status: 400 })
     }
 
-    const library =
-      (await this.state.storage.get<StoredLibraryFile[]>("library")) || []
+    const library = await this.loadLibrary()
     const chunks =
       (await this.state.storage.get<WorkspaceChunk[]>("libraryChunks")) || []
 
@@ -564,6 +574,64 @@ export class Workspace {
 
   private async workspaceScope() {
     return (await this.state.storage.get<string>("workspaceScope")) || "legacy"
+  }
+
+  /**
+   * One-way lazy migration for v3 inline attachment records. The old Durable
+   * Object value is rewritten only after every corresponding R2 write succeeds.
+   */
+  private async loadLibrary(): Promise<StoredLibraryFile[]> {
+    const stored =
+      (await this.state.storage.get<LegacyStoredLibraryFile[]>("library")) || []
+
+    if (!stored.some(file => !file.ingestionState || !file.objectKey || !file.contentHash)) {
+      return stored as StoredLibraryFile[]
+    }
+
+    const scope = await this.workspaceScope()
+    const migrated: StoredLibraryFile[] = []
+
+    for (const file of stored) {
+      if (file.ingestionState && file.objectKey && file.contentHash) {
+        migrated.push(file as StoredLibraryFile)
+        continue
+      }
+
+      const id = file.id || createId("file")
+      const signature = file.signature || id
+      const objectKey = `workspaces/${scope}/artifacts/${id}/${signature}`
+      const attachment = file.attachment || {
+        kind: "document" as const,
+        name: "Attachment",
+        mimeType: "application/octet-stream",
+        size: 0
+      }
+
+      await this.env.ARTIFACTS.put(
+        objectKey,
+        JSON.stringify({
+          dataUrl: attachment.dataUrl || undefined,
+          extractedText: attachment.extractedText || undefined
+        }),
+        { httpMetadata: { contentType: "application/json" } }
+      )
+
+      const { dataUrl: _dataUrl, extractedText: _extractedText, ...metadata } = attachment
+      migrated.push({
+        id,
+        signature,
+        contentHash: signature,
+        workspaceScope: scope,
+        objectKey,
+        ingestionState: "ready",
+        createdAt: file.createdAt || new Date().toISOString(),
+        updatedAt: file.updatedAt || new Date().toISOString(),
+        attachment: metadata
+      })
+    }
+
+    await this.state.storage.put("library", migrated)
+    return migrated
   }
 
   private async searchLibrary(request: Request) {
