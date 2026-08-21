@@ -14,19 +14,13 @@ const CONTENT_SECURITY_POLICY = [
 
 /** Apply browser protections to Worker-generated responses.
  * Static assets receive the matching policy from pages/_headers. */
-export function applyBrowserSecurityHeaders(
-  response: Response,
-  requestUrl: string
-): Response {
+export function applyBrowserSecurityHeaders(response: Response, requestUrl: string): Response {
   const headers = new Headers(response.headers)
 
   headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY)
   headers.set("X-Content-Type-Options", "nosniff")
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin")
-  headers.set(
-    "Permissions-Policy",
-    "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
-  )
+  headers.set("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()")
 
   // HSTS is emitted only for HTTPS origins; browsers ignore it over HTTP.
   if (new URL(requestUrl).protocol === "https:") {

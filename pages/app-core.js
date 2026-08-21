@@ -34,9 +34,7 @@ window.LytaCore = (() => {
             role: message?.role === "assistant" ? "assistant" : "user",
             content: typeof message?.content === "string" ? message.content : "",
             mode: normalizeChatModeValue(message?.mode),
-            createdAt: typeof message?.createdAt === "string"
-                ? message.createdAt
-                : new Date().toISOString(),
+            createdAt: typeof message?.createdAt === "string" ? message.createdAt : new Date().toISOString(),
             attachments: normalizeAttachments(message?.attachments),
             citations: normalizeCitations(message?.citations),
             followups: normalizeFollowups(message?.followups)
@@ -46,24 +44,16 @@ window.LytaCore = (() => {
         if (!Array.isArray(value)) {
             return [];
         }
-        return value.map(attachment => ({
+        return value.map((attachment) => ({
             id: typeof attachment?.id === "string" ? attachment.id : crypto.randomUUID(),
-            libraryFileId: typeof attachment?.libraryFileId === "string"
-                ? attachment.libraryFileId
-                : "",
+            libraryFileId: typeof attachment?.libraryFileId === "string" ? attachment.libraryFileId : "",
             kind: attachment?.kind === "image" ? "image" : "document",
-            name: typeof attachment?.name === "string" && attachment.name.trim()
-                ? attachment.name.trim()
-                : "Attachment",
-            mimeType: typeof attachment?.mimeType === "string" && attachment.mimeType.trim()
-                ? attachment.mimeType.trim()
-                : "application/octet-stream",
+            name: typeof attachment?.name === "string" && attachment.name.trim() ? attachment.name.trim() : "Attachment",
+            mimeType: typeof attachment?.mimeType === "string" && attachment.mimeType.trim() ? attachment.mimeType.trim() : "application/octet-stream",
             size: Number.isFinite(attachment?.size) ? attachment.size : 0,
             summary: typeof attachment?.summary === "string" ? attachment.summary : "",
             dataUrl: typeof attachment?.dataUrl === "string" ? attachment.dataUrl : "",
-            extractedText: typeof attachment?.extractedText === "string"
-                ? attachment.extractedText
-                : ""
+            extractedText: typeof attachment?.extractedText === "string" ? attachment.extractedText : ""
         }));
     }
     function normalizeCitations(value) {
@@ -74,22 +64,18 @@ window.LytaCore = (() => {
             .filter(Boolean)
             .map((citation, index) => ({
             id: typeof citation?.id === "string" ? citation.id : `source-${index + 1}`,
-            label: typeof citation?.label === "string" && citation.label.trim()
-                ? citation.label.trim()
-                : `Source ${index + 1}`,
+            label: typeof citation?.label === "string" && citation.label.trim() ? citation.label.trim() : `Source ${index + 1}`,
             fileId: typeof citation?.fileId === "string" ? citation.fileId : "",
-            fileName: typeof citation?.fileName === "string" && citation.fileName.trim()
-                ? citation.fileName.trim()
-                : "Attachment",
+            fileName: typeof citation?.fileName === "string" && citation.fileName.trim() ? citation.fileName.trim() : "Attachment",
             snippet: typeof citation?.snippet === "string" ? citation.snippet.trim() : ""
         }))
-            .filter(citation => citation.snippet);
+            .filter((citation) => citation.snippet);
     }
     function normalizeFollowups(value) {
         return Array.isArray(value)
             ? value
-                .filter(item => typeof item === "string")
-                .map(item => item.trim())
+                .filter((item) => typeof item === "string")
+                .map((item) => item.trim())
                 .filter(Boolean)
                 .slice(0, 3)
             : [];
@@ -98,9 +84,7 @@ window.LytaCore = (() => {
         if (!Array.isArray(value)) {
             return [];
         }
-        return value
-            .map(normalizeSessionRecord)
-            .filter((session) => Boolean(session));
+        return value.map(normalizeSessionRecord).filter((session) => Boolean(session));
     }
     function normalizeSessionRecord(value) {
         if (typeof value?.id !== "string" || !value.id) {
@@ -109,21 +93,15 @@ window.LytaCore = (() => {
         const timestamp = new Date().toISOString();
         return {
             id: value.id,
-            title: typeof value?.title === "string" && value.title.trim()
-                ? value.title.trim()
-                : "New Chat",
+            title: typeof value?.title === "string" && value.title.trim() ? value.title.trim() : "New Chat",
             createdAt: typeof value?.createdAt === "string" ? value.createdAt : timestamp,
             updatedAt: typeof value?.updatedAt === "string" ? value.updatedAt : timestamp
         };
     }
     function normalizeProfile(profile, user) {
         return {
-            name: typeof profile?.name === "string" && profile.name.trim()
-                ? profile.name.trim()
-                : DEFAULT_PROFILE.name,
-            workspace: typeof profile?.workspace === "string" && profile.workspace.trim()
-                ? profile.workspace.trim()
-                : DEFAULT_PROFILE.workspace,
+            name: typeof profile?.name === "string" && profile.name.trim() ? profile.name.trim() : DEFAULT_PROFILE.name,
+            workspace: typeof profile?.workspace === "string" && profile.workspace.trim() ? profile.workspace.trim() : DEFAULT_PROFILE.workspace,
             email: typeof profile?.email === "string" && profile.email.trim()
                 ? profile.email.trim()
                 : typeof user?.email === "string"
@@ -145,17 +123,11 @@ window.LytaCore = (() => {
             return [];
         }
         const timestamp = new Date().toISOString();
-        return value.map(file => ({
-            libraryFileId: typeof file?.libraryFileId === "string"
-                ? file.libraryFileId
-                : crypto.randomUUID(),
+        return value.map((file) => ({
+            libraryFileId: typeof file?.libraryFileId === "string" ? file.libraryFileId : crypto.randomUUID(),
             kind: file?.kind === "image" ? "image" : "document",
-            name: typeof file?.name === "string" && file.name.trim()
-                ? file.name.trim()
-                : "Attachment",
-            mimeType: typeof file?.mimeType === "string" && file.mimeType.trim()
-                ? file.mimeType.trim()
-                : "application/octet-stream",
+            name: typeof file?.name === "string" && file.name.trim() ? file.name.trim() : "Attachment",
+            mimeType: typeof file?.mimeType === "string" && file.mimeType.trim() ? file.mimeType.trim() : "application/octet-stream",
             size: Number.isFinite(file?.size) ? file.size : 0,
             summary: typeof file?.summary === "string" ? file.summary : "",
             dataUrl: typeof file?.dataUrl === "string" ? file.dataUrl : "",
@@ -171,15 +143,10 @@ window.LytaCore = (() => {
         if (mode === "light" || mode === "dark") {
             return mode;
         }
-        return window.matchMedia?.("(prefers-color-scheme: dark)").matches
-            ? "dark"
-            : "light";
+        return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     }
     function toSingleLine(text, limit) {
-        return (text || "")
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, limit);
+        return (text || "").replace(/\s+/g, " ").trim().slice(0, limit);
     }
     function formatMimeLabel(mimeType) {
         if (!mimeType) {
@@ -227,14 +194,12 @@ window.LytaCore = (() => {
         const source = markdown || fallback;
         const fragment = document.createDocumentFragment();
         const citationByLabel = new Map(citations.map((citation, index) => [citation.label, { citation, index }]));
-        const labels = [...citationByLabel.keys()]
-            .filter(Boolean)
-            .sort((left, right) => right.length - left.length);
+        const labels = [...citationByLabel.keys()].filter(Boolean).sort((left, right) => right.length - left.length);
         if (!labels.length) {
             appendInertText(fragment, source);
             return fragment;
         }
-        const markerPattern = new RegExp(`(${labels.map(label => `\\[${escapeRegExp(label)}\\]`).join("|")})`, "g");
+        const markerPattern = new RegExp(`(${labels.map((label) => `\\[${escapeRegExp(label)}\\]`).join("|")})`, "g");
         let cursor = 0;
         for (const match of source.matchAll(markerPattern)) {
             const start = match.index || 0;
@@ -294,7 +259,7 @@ window.LytaCore = (() => {
             .split(/\s+/)
             .filter(Boolean)
             .slice(0, 2)
-            .map(part => part[0]?.toUpperCase() || "")
+            .map((part) => part[0]?.toUpperCase() || "")
             .join("") || "LY");
     }
     function hasDraggedFiles(event) {
@@ -343,8 +308,7 @@ window.LytaCore = (() => {
             .slice(0, 48);
     }
     function looksLikeHtmlError(text) {
-        return (/^\s*</.test(text) ||
-            /Cloudflare|cf-error|Error 1101|Worker threw exception|Please enable cookies/i.test(text));
+        return /^\s*</.test(text) || /Cloudflare|cf-error|Error 1101|Worker threw exception|Please enable cookies/i.test(text);
     }
     async function extractResponseErrorMessage(response, fallback) {
         let text = "";

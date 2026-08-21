@@ -1,23 +1,24 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { AuthDirectory } from "../src/durable/authDirectory"
-import { RateLimiter } from "../src/durable/rateLimiter"
+import { AuthDirectory } from "../../src/durable/authDirectory"
+import { RateLimiter } from "../../src/durable/rateLimiter"
 
 function storageState() {
   const values = new Map<string, unknown>()
   return {
     values,
-    state: { storage: {
-      get: async <T>(key: string) => values.get(key) as T | undefined,
-      put: async (key: string, value: unknown) => values.set(key, value),
-      delete: async (key: string | string[]) => {
-        for (const item of Array.isArray(key) ? key : [key]) values.delete(item)
-      },
-      list: async <T>({ prefix }: { prefix?: string }) => new Map(
-        [...values].filter(([key]) => !prefix || key.startsWith(prefix))
-      ) as Map<string, T>,
-      setAlarm: async () => undefined
-    } }
+    state: {
+      storage: {
+        get: async <T>(key: string) => values.get(key) as T | undefined,
+        put: async (key: string, value: unknown) => values.set(key, value),
+        delete: async (key: string | string[]) => {
+          for (const item of Array.isArray(key) ? key : [key]) values.delete(item)
+        },
+        list: async <T>({ prefix }: { prefix?: string }) =>
+          new Map([...values].filter(([key]) => !prefix || key.startsWith(prefix))) as Map<string, T>,
+        setAlarm: async () => undefined
+      }
+    }
   }
 }
 
@@ -34,16 +35,20 @@ test("distributed limiter returns a retry window after its independent budget", 
 test("auth uses keyed records and expired sessions are pruned without another login", async () => {
   const { state, values } = storageState()
   const auth = new AuthDirectory(state as unknown as DurableObjectState)
-  const register = (email: string) => auth.fetch(new Request("https://internal/register", {
-    method: "POST", body: JSON.stringify({ email, password: "password-123" })
-  }))
+  const register = (email: string) =>
+    auth.fetch(
+      new Request("https://internal/register", {
+        method: "POST",
+        body: JSON.stringify({ email, password: "password-123" })
+      })
+    )
   const first = await register("first@example.test")
   await register("second@example.test")
   assert.equal(values.has("usersByEmail"), false)
   assert.equal(values.has("user:first@example.test"), true)
   assert.equal(values.has("user:second@example.test"), true)
-  const token = (await first.json() as { token: string }).token
-  const sessionKey = [...values.keys()].find(key => key.startsWith("session:"))!
+  const token = ((await first.json()) as { token: string }).token
+  const sessionKey = [...values.keys()].find((key) => key.startsWith("session:"))!
   const session = values.get(sessionKey) as { expiresAt: string }
   session.expiresAt = new Date(Date.now() - 1).toISOString()
   values.set(sessionKey, session)
@@ -55,21 +60,25 @@ test("auth uses keyed records and expired sessions are pruned without another lo
 test("concurrent sessions remain bound to their own keyed user records", async () => {
   const { state } = storageState()
   const auth = new AuthDirectory(state as unknown as DurableObjectState)
-  const register = (email: string) => auth.fetch(new Request("https://internal/register", {
-    method: "POST", body: JSON.stringify({ email, password: "password-123" })
-  }))
-  const registrations = await Promise.all([
-    register("alpha@example.test"),
-    register("beta@example.test")
-  ])
-  const tokens = await Promise.all(registrations.map(async response => (
-    (await response.json() as { token: string }).token
-  )))
-  const sessions = await Promise.all(tokens.map(token => auth.fetch(new Request("https://internal/session", {
-    method: "POST", body: JSON.stringify({ token })
-  }))))
-  const users = await Promise.all(sessions.map(async response => (
-    (await response.json() as { user: { email: string } }).user.email
-  )))
+  const register = (email: string) =>
+    auth.fetch(
+      new Request("https://internal/register", {
+        method: "POST",
+        body: JSON.stringify({ email, password: "password-123" })
+      })
+    )
+  const registrations = await Promise.all([register("alpha@example.test"), register("beta@example.test")])
+  const tokens = await Promise.all(registrations.map(async (response) => ((await response.json()) as { token: string }).token))
+  const sessions = await Promise.all(
+    tokens.map((token) =>
+      auth.fetch(
+        new Request("https://internal/session", {
+          method: "POST",
+          body: JSON.stringify({ token })
+        })
+      )
+    )
+  )
+  const users = await Promise.all(sessions.map(async (response) => ((await response.json()) as { user: { email: string } }).user.email))
   assert.deepEqual(users.sort(), ["alpha@example.test", "beta@example.test"])
 })

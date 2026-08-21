@@ -93,12 +93,7 @@ interface LytaCoreApi {
   formatRelativeTime(iso: string | null | undefined): string
   renderMarkdown(markdown: string | null | undefined, citations?: Citation[], fallback?: string): DocumentFragment
   getFileTypeGlyph(mimeType: string | null | undefined, kind: AttachmentKind): string
-  setStatusState(
-    element: HTMLElement,
-    message: string | null | undefined,
-    stateName?: string,
-    fallback?: string
-  ): void
+  setStatusState(element: HTMLElement, message: string | null | undefined, stateName?: string, fallback?: string): void
   getInitials(name: string | null | undefined): string
   hasDraggedFiles(event: { dataTransfer?: DataTransfer | null }): boolean
   getErrorMessage(error: unknown, fallback?: string): string
@@ -153,10 +148,7 @@ window.LytaCore = ((): LytaCoreApi => {
       role: message?.role === "assistant" ? "assistant" : "user",
       content: typeof message?.content === "string" ? message.content : "",
       mode: normalizeChatModeValue(message?.mode),
-      createdAt:
-        typeof message?.createdAt === "string"
-          ? message.createdAt
-          : new Date().toISOString(),
+      createdAt: typeof message?.createdAt === "string" ? message.createdAt : new Date().toISOString(),
       attachments: normalizeAttachments(message?.attachments),
       citations: normalizeCitations(message?.citations),
       followups: normalizeFollowups(message?.followups)
@@ -168,28 +160,17 @@ window.LytaCore = ((): LytaCoreApi => {
       return []
     }
 
-    return value.map(attachment => ({
+    return value.map((attachment) => ({
       id: typeof attachment?.id === "string" ? attachment.id : crypto.randomUUID(),
-      libraryFileId:
-        typeof attachment?.libraryFileId === "string"
-          ? attachment.libraryFileId
-          : "",
+      libraryFileId: typeof attachment?.libraryFileId === "string" ? attachment.libraryFileId : "",
       kind: attachment?.kind === "image" ? "image" : "document",
-      name:
-        typeof attachment?.name === "string" && attachment.name.trim()
-          ? attachment.name.trim()
-          : "Attachment",
+      name: typeof attachment?.name === "string" && attachment.name.trim() ? attachment.name.trim() : "Attachment",
       mimeType:
-        typeof attachment?.mimeType === "string" && attachment.mimeType.trim()
-          ? attachment.mimeType.trim()
-          : "application/octet-stream",
+        typeof attachment?.mimeType === "string" && attachment.mimeType.trim() ? attachment.mimeType.trim() : "application/octet-stream",
       size: Number.isFinite(attachment?.size) ? attachment.size : 0,
       summary: typeof attachment?.summary === "string" ? attachment.summary : "",
       dataUrl: typeof attachment?.dataUrl === "string" ? attachment.dataUrl : "",
-      extractedText:
-        typeof attachment?.extractedText === "string"
-          ? attachment.extractedText
-          : ""
+      extractedText: typeof attachment?.extractedText === "string" ? attachment.extractedText : ""
     }))
   }
 
@@ -201,28 +182,20 @@ window.LytaCore = ((): LytaCoreApi => {
     return value
       .filter(Boolean)
       .map((citation, index) => ({
-        id:
-          typeof citation?.id === "string" ? citation.id : `source-${index + 1}`,
-        label:
-          typeof citation?.label === "string" && citation.label.trim()
-            ? citation.label.trim()
-            : `Source ${index + 1}`,
+        id: typeof citation?.id === "string" ? citation.id : `source-${index + 1}`,
+        label: typeof citation?.label === "string" && citation.label.trim() ? citation.label.trim() : `Source ${index + 1}`,
         fileId: typeof citation?.fileId === "string" ? citation.fileId : "",
-        fileName:
-          typeof citation?.fileName === "string" && citation.fileName.trim()
-            ? citation.fileName.trim()
-            : "Attachment",
-        snippet:
-          typeof citation?.snippet === "string" ? citation.snippet.trim() : ""
+        fileName: typeof citation?.fileName === "string" && citation.fileName.trim() ? citation.fileName.trim() : "Attachment",
+        snippet: typeof citation?.snippet === "string" ? citation.snippet.trim() : ""
       }))
-      .filter(citation => citation.snippet)
+      .filter((citation) => citation.snippet)
   }
 
   function normalizeFollowups(value: unknown): string[] {
     return Array.isArray(value)
       ? value
-          .filter(item => typeof item === "string")
-          .map(item => item.trim())
+          .filter((item) => typeof item === "string")
+          .map((item) => item.trim())
           .filter(Boolean)
           .slice(0, 3)
       : []
@@ -233,9 +206,7 @@ window.LytaCore = ((): LytaCoreApi => {
       return []
     }
 
-    return value
-      .map(normalizeSessionRecord)
-      .filter((session): session is SessionRecord => Boolean(session))
+    return value.map(normalizeSessionRecord).filter((session): session is SessionRecord => Boolean(session))
   }
 
   function normalizeSessionRecord(value: LooseRecord): SessionRecord | null {
@@ -247,10 +218,7 @@ window.LytaCore = ((): LytaCoreApi => {
 
     return {
       id: value.id,
-      title:
-        typeof value?.title === "string" && value.title.trim()
-          ? value.title.trim()
-          : "New Chat",
+      title: typeof value?.title === "string" && value.title.trim() ? value.title.trim() : "New Chat",
       createdAt: typeof value?.createdAt === "string" ? value.createdAt : timestamp,
       updatedAt: typeof value?.updatedAt === "string" ? value.updatedAt : timestamp
     }
@@ -258,14 +226,8 @@ window.LytaCore = ((): LytaCoreApi => {
 
   function normalizeProfile(profile: LooseRecord, user?: LooseRecord): Profile {
     return {
-      name:
-        typeof profile?.name === "string" && profile.name.trim()
-          ? profile.name.trim()
-          : DEFAULT_PROFILE.name,
-      workspace:
-        typeof profile?.workspace === "string" && profile.workspace.trim()
-          ? profile.workspace.trim()
-          : DEFAULT_PROFILE.workspace,
+      name: typeof profile?.name === "string" && profile.name.trim() ? profile.name.trim() : DEFAULT_PROFILE.name,
+      workspace: typeof profile?.workspace === "string" && profile.workspace.trim() ? profile.workspace.trim() : DEFAULT_PROFILE.workspace,
       email:
         typeof profile?.email === "string" && profile.email.trim()
           ? profile.email.trim()
@@ -292,25 +254,15 @@ window.LytaCore = ((): LytaCoreApi => {
 
     const timestamp = new Date().toISOString()
 
-    return value.map(file => ({
-      libraryFileId:
-        typeof file?.libraryFileId === "string"
-          ? file.libraryFileId
-          : crypto.randomUUID(),
+    return value.map((file) => ({
+      libraryFileId: typeof file?.libraryFileId === "string" ? file.libraryFileId : crypto.randomUUID(),
       kind: file?.kind === "image" ? "image" : "document",
-      name:
-        typeof file?.name === "string" && file.name.trim()
-          ? file.name.trim()
-          : "Attachment",
-      mimeType:
-        typeof file?.mimeType === "string" && file.mimeType.trim()
-          ? file.mimeType.trim()
-          : "application/octet-stream",
+      name: typeof file?.name === "string" && file.name.trim() ? file.name.trim() : "Attachment",
+      mimeType: typeof file?.mimeType === "string" && file.mimeType.trim() ? file.mimeType.trim() : "application/octet-stream",
       size: Number.isFinite(file?.size) ? file.size : 0,
       summary: typeof file?.summary === "string" ? file.summary : "",
       dataUrl: typeof file?.dataUrl === "string" ? file.dataUrl : "",
-      extractedText:
-        typeof file?.extractedText === "string" ? file.extractedText : "",
+      extractedText: typeof file?.extractedText === "string" ? file.extractedText : "",
       createdAt: typeof file?.createdAt === "string" ? file.createdAt : timestamp,
       updatedAt: typeof file?.updatedAt === "string" ? file.updatedAt : timestamp
     }))
@@ -325,16 +277,11 @@ window.LytaCore = ((): LytaCoreApi => {
       return mode
     }
 
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light"
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"
   }
 
   function toSingleLine(text: string | null | undefined, limit: number): string {
-    return (text || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, limit)
+    return (text || "").replace(/\s+/g, " ").trim().slice(0, limit)
   }
 
   function formatMimeLabel(mimeType: string | null | undefined): string {
@@ -384,32 +331,21 @@ window.LytaCore = ((): LytaCoreApi => {
     return `${Math.round(delta / day)}d ago`
   }
 
-  function renderMarkdown(
-    markdown: string | null | undefined,
-    citations: Citation[] = [],
-    fallback = ""
-  ): DocumentFragment {
+  function renderMarkdown(markdown: string | null | undefined, citations: Citation[] = [], fallback = ""): DocumentFragment {
     // Model and source-derived text is only ever inserted as Text nodes. This
     // does not rely on a separately loaded sanitizer, so a script load failure
     // leaves HTML-looking output inert.
     const source = markdown || fallback
     const fragment = document.createDocumentFragment()
-    const citationByLabel = new Map(
-      citations.map((citation, index) => [citation.label, { citation, index }])
-    )
-    const labels = [...citationByLabel.keys()]
-      .filter(Boolean)
-      .sort((left, right) => right.length - left.length)
+    const citationByLabel = new Map(citations.map((citation, index) => [citation.label, { citation, index }]))
+    const labels = [...citationByLabel.keys()].filter(Boolean).sort((left, right) => right.length - left.length)
 
     if (!labels.length) {
       appendInertText(fragment, source)
       return fragment
     }
 
-    const markerPattern = new RegExp(
-      `(${labels.map(label => `\\[${escapeRegExp(label)}\\]`).join("|")})`,
-      "g"
-    )
+    const markerPattern = new RegExp(`(${labels.map((label) => `\\[${escapeRegExp(label)}\\]`).join("|")})`, "g")
     let cursor = 0
 
     for (const match of source.matchAll(markerPattern)) {
@@ -423,10 +359,7 @@ window.LytaCore = ((): LytaCoreApi => {
         marker.type = "button"
         marker.className = "citation-marker"
         marker.dataset.citationIndex = String(entry.index)
-        marker.setAttribute(
-          "aria-label",
-          `Jump to source ${entry.index + 1}: ${entry.citation.fileName}`
-        )
+        marker.setAttribute("aria-label", `Jump to source ${entry.index + 1}: ${entry.citation.fileName}`)
         marker.textContent = String(entry.index + 1)
         fragment.appendChild(marker)
       } else {
@@ -440,10 +373,7 @@ window.LytaCore = ((): LytaCoreApi => {
     return fragment
   }
 
-  function getFileTypeGlyph(
-    mimeType: string | null | undefined,
-    kind: AttachmentKind
-  ): string {
+  function getFileTypeGlyph(mimeType: string | null | undefined, kind: AttachmentKind): string {
     if (kind === "image") {
       return "IMG"
     }
@@ -462,12 +392,7 @@ window.LytaCore = ((): LytaCoreApi => {
     return "FILE"
   }
 
-  function setStatusState(
-    element: HTMLElement,
-    message: string | null | undefined,
-    stateName = "neutral",
-    fallback = ""
-  ): void {
+  function setStatusState(element: HTMLElement, message: string | null | undefined, stateName = "neutral", fallback = ""): void {
     element.textContent = message || fallback
 
     if (stateName === "neutral") {
@@ -484,14 +409,12 @@ window.LytaCore = ((): LytaCoreApi => {
         .split(/\s+/)
         .filter(Boolean)
         .slice(0, 2)
-        .map(part => part[0]?.toUpperCase() || "")
+        .map((part) => part[0]?.toUpperCase() || "")
         .join("") || "LY"
     )
   }
 
-  function hasDraggedFiles(event: {
-    dataTransfer?: DataTransfer | null
-  }): boolean {
+  function hasDraggedFiles(event: { dataTransfer?: DataTransfer | null }): boolean {
     return Array.from(event.dataTransfer?.types || []).includes("Files")
   }
 
@@ -513,10 +436,7 @@ window.LytaCore = ((): LytaCoreApi => {
     })
   }
 
-  function getErrorMessage(
-    error: unknown,
-    fallback = "Something went wrong."
-  ): string {
+  function getErrorMessage(error: unknown, fallback = "Something went wrong."): string {
     return error instanceof Error && error.message ? error.message : fallback
   }
 
@@ -549,16 +469,10 @@ window.LytaCore = ((): LytaCoreApi => {
   }
 
   function looksLikeHtmlError(text: string): boolean {
-    return (
-      /^\s*</.test(text) ||
-      /Cloudflare|cf-error|Error 1101|Worker threw exception|Please enable cookies/i.test(text)
-    )
+    return /^\s*</.test(text) || /Cloudflare|cf-error|Error 1101|Worker threw exception|Please enable cookies/i.test(text)
   }
 
-  async function extractResponseErrorMessage(
-    response: Response,
-    fallback: string
-  ): Promise<string> {
+  async function extractResponseErrorMessage(response: Response, fallback: string): Promise<string> {
     let text = ""
 
     try {
@@ -589,10 +503,7 @@ window.LytaCore = ((): LytaCoreApi => {
     return toSingleLine(trimmed, 240) || fallback
   }
 
-  async function apiJson<T = unknown>(
-    path: string,
-    options: RequestInit = {}
-  ): Promise<T> {
+  async function apiJson<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
     const headers = new Headers(options.headers || undefined)
 
     if (options.body && !headers.has("Content-Type")) {

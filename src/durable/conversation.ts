@@ -2,10 +2,7 @@ import type { Env } from "../index"
 import { runAI, runAIStream } from "../services/ai"
 import type { AiChatMessage } from "../services/ai"
 import { retrieveContext } from "../services/retriever"
-import {
-  logServerError,
-  scopedPrefix
-} from "../utils/serverErrors"
+import { logServerError, scopedPrefix } from "../utils/serverErrors"
 import {
   buildConversationMessages,
   buildRetrievalQuery,
@@ -23,8 +20,7 @@ import {
 } from "../chat/messages"
 
 const MAX_RECENT = 6
-const CHAT_SERVER_ERROR =
-  "LYTA server error. Please retry; request failed before streaming started."
+const CHAT_SERVER_ERROR = "LYTA server error. Please retry; request failed before streaming started."
 const encoder = new TextEncoder()
 const JSON_HEADERS = {
   "Content-Type": "application/json"
@@ -45,26 +41,24 @@ function userPromptMessage(content: string): AiChatMessage {
 }
 
 export class Conversation {
-
   state: DurableObjectState
   env: Env
   private lock: Promise<void> = Promise.resolve()
 
-  constructor(state: DurableObjectState, env: Env){
+  constructor(state: DurableObjectState, env: Env) {
     this.state = state
     this.env = env
   }
 
-  async fetch(request: Request): Promise<Response>{
-
+  async fetch(request: Request): Promise<Response> {
     const pathname = new URL(request.url).pathname
 
-    if(pathname === "/reset"){
+    if (pathname === "/reset") {
       await this.state.storage.deleteAll()
       return Response.json({ ok: true })
     }
 
-    if(pathname === "/history"){
+    if (pathname === "/history") {
       const messages = await this.loadCanonicalHistory()
 
       return Response.json({
@@ -72,22 +66,18 @@ export class Conversation {
       })
     }
 
-    if(pathname === "/meta"){
-
-      const title =
-        (await this.state.storage.get("title")) || "New Chat"
+    if (pathname === "/meta") {
+      const title = (await this.state.storage.get("title")) || "New Chat"
 
       return Response.json({
         title
       })
     }
 
-    if(pathname === "/stats"){
-
+    if (pathname === "/stats") {
       const messages = await this.loadCanonicalHistory()
 
-      const summary =
-        await this.state.storage.get("summary")
+      const summary = await this.state.storage.get("summary")
 
       return Response.json({
         messageCount: messages.length,
@@ -95,52 +85,46 @@ export class Conversation {
       })
     }
 
-    if(pathname === "/chat"){
+    if (pathname === "/chat") {
       return this.queue(() => this.handleChat(request, false))
     }
 
-    if(pathname === "/chat/stream"){
+    if (pathname === "/chat/stream") {
       return this.queue(() => this.handleChat(request, true))
     }
 
     return new Response("Not Found", { status: 404 })
   }
 
-  private async queue<T>(fn: () => Promise<T>): Promise<T>{
+  private async queue<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.lock.then(fn)
-    this.lock = next.then(() => {}, () => {})
+    this.lock = next.then(
+      () => {},
+      () => {}
+    )
     return next
   }
 
-  async handleChat(request: Request, stream: boolean): Promise<Response>{
+  async handleChat(request: Request, stream: boolean): Promise<Response> {
+    const rawBody = (await request.json()) as ConversationRequestBody
 
-    const rawBody =
-      await request.json() as ConversationRequestBody
+    const body = normalizeChatRequest(rawBody)
 
-    const body =
-      normalizeChatRequest(rawBody)
+    const mode = normalizeChatMode(body.mode)
 
-    const mode =
-      normalizeChatMode(body.mode)
+    const workspaceContext = normalizeWorkspaceContext(rawBody.workspaceContext)
 
-    const workspaceContext =
-      normalizeWorkspaceContext(rawBody.workspaceContext)
-
-    const citations =
-      normalizeLibraryCitations(rawBody.citations)
+    const citations = normalizeLibraryCitations(rawBody.citations)
 
     const evidenceStatus = citations.length ? "available" : "insufficient"
 
-    const userId =
-      normalizeScopedId(rawBody.userId)
+    const userId = normalizeScopedId(rawBody.userId)
 
-    const sessionId =
-      normalizeScopedId(rawBody.sessionId)
+    const sessionId = normalizeScopedId(rawBody.sessionId)
 
-    const requestId =
-      normalizeScopedId(rawBody.requestId) || crypto.randomUUID()
+    const requestId = normalizeScopedId(rawBody.requestId) || crypto.randomUUID()
 
-    if(!body.message && !body.attachments.length){
+    if (!body.message && !body.attachments.length) {
       return new Response("Message or attachment required", { status: 400 })
     }
 
@@ -160,9 +144,7 @@ export class Conversation {
       role: "user",
       content: body.message,
       mode,
-      ...(body.attachments.length
-        ? { attachments: body.attachments }
-        : {}),
+      ...(body.attachments.length ? { attachments: body.attachments } : {}),
       createdAt: new Date().toISOString()
     }
 
@@ -173,44 +155,33 @@ export class Conversation {
     // assistant record is added only after a completed model response.
     await this.putStorage("messages", history, "conversation.history.store", requestMetadata)
 
-    let title =
-      await this.state.storage.get<string>("title")
+    let title = await this.state.storage.get<string>("title")
 
-    if(!title){
+    if (!title) {
       title = await this.generateConversationTitle(userMessage, requestMetadata)
       await this.putStorage("title", title, "conversation.title.store", requestMetadata)
       await this.renameWorkspaceSession(userId, sessionId, title, requestMetadata)
     }
 
-    const summary =
-      (await this.state.storage.get<string>("summary")) || ""
+    const summary = (await this.state.storage.get<string>("summary")) || ""
 
-    const retrievalQuery =
-      buildRetrievalQuery(userMessage)
+    const retrievalQuery = buildRetrievalQuery(userMessage)
 
-    const knowledgeContext =
-      await this.retrieveBuiltInContext(retrievalQuery, requestMetadata)
+    const knowledgeContext = await this.retrieveBuiltInContext(retrievalQuery, requestMetadata)
 
-    const retrievedContext = [
-      knowledgeContext,
-      workspaceContext
-    ]
-      .filter(Boolean)
-      .join("\n\n")
+    const retrievedContext = [knowledgeContext, workspaceContext].filter(Boolean).join("\n\n")
 
-    const messages =
-      buildConversationMessages({
-        recent: history.slice(-MAX_RECENT),
-        mode,
-        summary,
-        retrievedContext
-      })
+    const messages = buildConversationMessages({
+      recent: history.slice(-MAX_RECENT),
+      mode,
+      summary,
+      retrievedContext
+    })
 
-    if(stream){
+    if (stream) {
       return this.streamChat({
         messages,
         mode,
-        recent: history,
         userMessage,
         citations,
         evidenceStatus,
@@ -225,10 +196,9 @@ export class Conversation {
     let aiResponse: Awaited<ReturnType<typeof runAI>>
 
     try {
-      aiResponse =
-        await runAI(this.env, messages, {
-          mode
-        })
+      aiResponse = await runAI(this.env, messages, {
+        mode
+      })
     } catch (error) {
       logServerError("conversation.chat.ai", error, requestMetadata)
 
@@ -247,11 +217,9 @@ export class Conversation {
       )
     }
 
-    const reply =
-      aiResponse?.response?.trim() || "No response from model."
+    const reply = aiResponse?.response?.trim() || "No response from model."
 
-    const followups =
-      await this.generateFollowups(userMessage, reply, mode, requestMetadata)
+    const followups = await this.generateFollowups(userMessage, reply, mode, requestMetadata)
 
     history.push(
       createAssistantMessage(reply, {
@@ -285,7 +253,6 @@ export class Conversation {
   private async streamChat(input: {
     messages: AiChatMessage[]
     mode: ChatMessageRecord["mode"]
-    recent: ChatMessageRecord[]
     userMessage: ChatMessageRecord
     citations: ReturnType<typeof normalizeLibraryCitations>
     evidenceStatus: "available" | "insufficient"
@@ -297,8 +264,7 @@ export class Conversation {
   }) {
     let assistantText = ""
 
-    const { readable, writable } =
-      new TransformStream<Uint8Array, Uint8Array>()
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
 
     const writer = writable.getWriter()
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
@@ -306,43 +272,38 @@ export class Conversation {
     let parseBuffer = ""
 
     ;(async () => {
-      try{
-        const aiStream =
-          await runAIStream(this.env, input.messages, {
-            mode: input.mode
-          })
+      try {
+        const aiStream = await runAIStream(this.env, input.messages, {
+          mode: input.mode
+        })
 
         reader = aiStream.getReader()
 
-        while(true){
-
+        while (true) {
           const { done, value } = await reader.read()
 
-          if(done){
+          if (done) {
             break
           }
 
           await writer.write(value)
 
-          const chunk =
-            decoder.decode(value, { stream: true })
+          const chunk = decoder.decode(value, { stream: true })
 
-          parseBuffer =
-            appendAssistantTextFromSse(parseBuffer + chunk, text => {
-              assistantText += text
-            })
+          parseBuffer = appendAssistantTextFromSse(parseBuffer + chunk, (text) => {
+            assistantText += text
+          })
         }
 
-        parseBuffer =
-          appendAssistantTextFromSse(
-            `${parseBuffer}${decoder.decode()}`,
-            text => {
-              assistantText += text
-            },
-            true
-          )
+        parseBuffer = appendAssistantTextFromSse(
+          `${parseBuffer}${decoder.decode()}`,
+          (text) => {
+            assistantText += text
+          },
+          true
+        )
 
-        if(!assistantText.trim()){
+        if (!assistantText.trim()) {
           assistantText = "No response from model."
         }
 
@@ -352,28 +313,26 @@ export class Conversation {
           })
         )
 
-        const followups =
-          await this.generateFollowups(
-            input.userMessage,
-            assistantText,
-            input.mode,
-            input.requestMetadata
-          )
+        const followups = await this.generateFollowups(input.userMessage, assistantText, input.mode, input.requestMetadata)
 
-        input.recent.push(
-          createAssistantMessage(assistantText, {
-            mode: input.mode,
-            citations: input.citations,
-            followups
-          })
-        )
+        const assistantMessage = createAssistantMessage(assistantText, {
+          mode: input.mode,
+          citations: input.citations,
+          followups
+        })
 
-        await this.persistConversation(input.recent, input.requestMetadata)
-        await this.touchWorkspaceSession(
-          input.userId,
-          input.sessionId,
-          input.requestMetadata
-        )
+        // Routed through the same queue() lock that serializes handleChat():
+        // this background completion can finish well after a later /chat or
+        // /chat/stream request has already started, so it must reload the
+        // canonical history fresh rather than persist the stale snapshot it
+        // started with, or it would clobber that later request's write.
+        await this.queue(async () => {
+          const canonicalHistory = await this.loadCanonicalHistory()
+          canonicalHistory.push(assistantMessage)
+          await this.persistConversation(canonicalHistory, input.requestMetadata)
+        })
+
+        await this.touchWorkspaceSession(input.userId, input.sessionId, input.requestMetadata)
 
         await writer.write(
           encodeSse({
@@ -387,10 +346,10 @@ export class Conversation {
 
         await writer.write(encoder.encode("data: [DONE]\n\n"))
         await writer.close()
-      }catch(error){
+      } catch (error) {
         logServerError("conversation.chat.stream", error, input.requestMetadata)
 
-        try{
+        try {
           await writer.write(
             encodeSse({
               error: CHAT_SERVER_ERROR,
@@ -398,10 +357,10 @@ export class Conversation {
               requestId: input.requestId
             })
           )
-        }catch{}
+        } catch {}
 
         await writer.close().catch(() => {})
-      }finally{
+      } finally {
         reader?.releaseLock()
       }
     })()
@@ -415,20 +374,10 @@ export class Conversation {
     })
   }
 
-  async persistConversation(
-    history: ChatMessageRecord[],
-    metadata: Record<string, unknown> = {}
-  ){
+  async persistConversation(history: ChatMessageRecord[], metadata: Record<string, unknown> = {}) {
+    await this.putStorage("messages", history, "conversation.history.store", metadata)
 
-    await this.putStorage(
-      "messages",
-      history,
-      "conversation.history.store",
-      metadata
-    )
-
-    if(history.length > MAX_RECENT){
-
+    if (history.length > MAX_RECENT) {
       const summaryPrompt = [
         systemMessage(
           "Summarize the following conversation, preserving user preferences, uploaded file context, cited sources, and unresolved asks."
@@ -437,24 +386,16 @@ export class Conversation {
       ]
 
       try {
-        const summaryResult =
-          await runAI(this.env, summaryPrompt, {
-            mode: "instant"
-          })
+        const summaryResult = await runAI(this.env, summaryPrompt, {
+          mode: "instant"
+        })
 
-        const newSummary =
-          summaryResult?.response || ""
+        const newSummary = summaryResult?.response || ""
 
-        await this.putStorage(
-          "summary",
-          newSummary,
-          "conversation.summary.store",
-          metadata
-        )
+        await this.putStorage("summary", newSummary, "conversation.summary.store", metadata)
       } catch (error) {
         logServerError("conversation.summary.generate", error, metadata)
       }
-
     }
   }
 
@@ -467,8 +408,7 @@ export class Conversation {
 
     // v1 records used `recent`; retain every message that survived the older
     // compact format and write it once into the canonical history key.
-    const legacy =
-      (await this.state.storage.get<ChatMessageRecord[]>("recent")) || []
+    const legacy = (await this.state.storage.get<ChatMessageRecord[]>("recent")) || []
 
     if (legacy.length) {
       await this.state.storage.put("messages", legacy)
@@ -477,29 +417,18 @@ export class Conversation {
     return legacy
   }
 
-  private async generateConversationTitle(
-    message: ChatMessageRecord,
-    metadata: Record<string, unknown>
-  ) {
+  private async generateConversationTitle(message: ChatMessageRecord, metadata: Record<string, unknown>) {
     const titlePrompt = [
-      systemMessage(
-        "Return only a 2 or 3 word chat title. Use title case. No punctuation. No quotes."
-      ),
+      systemMessage("Return only a 2 or 3 word chat title. Use title case. No punctuation. No quotes."),
       userPromptMessage(buildTitleSource(message))
     ]
 
     try {
-      const titleResult =
-        await runAI(this.env, titlePrompt, {
-          mode: "instant"
-        })
+      const titleResult = await runAI(this.env, titlePrompt, {
+        mode: "instant"
+      })
 
-      return (
-        createConversationTitle(
-          titleResult?.response,
-          message
-        ).slice(0, 40) || "New Chat"
-      )
+      return createConversationTitle(titleResult?.response, message).slice(0, 40) || "New Chat"
     } catch (error) {
       logServerError("conversation.title.generate", error, metadata)
       return createConversationTitle(undefined, message).slice(0, 40) || "New Chat"
@@ -516,51 +445,44 @@ export class Conversation {
       systemMessage(
         "Return a JSON array with exactly 3 concise follow-up prompts. Each prompt should sound natural, stay under 12 words, and avoid numbering or commentary."
       ),
-      userPromptMessage([
-        "Latest user request:",
-        buildTitleSource(userMessage),
-        "",
-        "Assistant answer:",
-        assistantText.slice(0, 1800)
-      ].join("\n"))
+      userPromptMessage(
+        ["Latest user request:", buildTitleSource(userMessage), "", "Assistant answer:", assistantText.slice(0, 1800)].join("\n")
+      )
     ]
 
     try {
-      const result =
-        await runAI(this.env, prompt, {
-          mode: mode || "instant"
-        })
+      const result = await runAI(this.env, prompt, {
+        mode: mode || "instant"
+      })
 
-      return createConversationFollowups(
-        result?.response,
-        userMessage
-      )
+      return createConversationFollowups(result?.response, userMessage)
     } catch (error) {
       logServerError("conversation.followups.generate", error, metadata)
       return createConversationFollowups(undefined, userMessage)
     }
   }
 
-  private async renameWorkspaceSession(
-    userId: string,
-    sessionId: string,
-    title: string,
-    metadata: Record<string, unknown>
-  ) {
-    await this.updateWorkspaceSession(userId, "/sessions/rename", {
-      id: sessionId,
-      title
-    }, metadata)
+  private async renameWorkspaceSession(userId: string, sessionId: string, title: string, metadata: Record<string, unknown>) {
+    await this.updateWorkspaceSession(
+      userId,
+      "/sessions/rename",
+      {
+        id: sessionId,
+        title
+      },
+      metadata
+    )
   }
 
-  private async touchWorkspaceSession(
-    userId: string,
-    sessionId: string,
-    metadata: Record<string, unknown>
-  ) {
-    await this.updateWorkspaceSession(userId, "/sessions/touch", {
-      id: sessionId
-    }, metadata)
+  private async touchWorkspaceSession(userId: string, sessionId: string, metadata: Record<string, unknown>) {
+    await this.updateWorkspaceSession(
+      userId,
+      "/sessions/touch",
+      {
+        id: sessionId
+      },
+      metadata
+    )
   }
 
   private async updateWorkspaceSession(
@@ -569,14 +491,11 @@ export class Conversation {
     body: Record<string, string>,
     metadata: Record<string, unknown>
   ) {
-    if(!userId || !body.id || !this.env.WORKSPACE){
+    if (!userId || !body.id || !this.env.WORKSPACE) {
       return
     }
 
-    const workspace =
-      this.env.WORKSPACE.get(
-        this.env.WORKSPACE.idFromName(userId)
-      )
+    const workspace = this.env.WORKSPACE.get(this.env.WORKSPACE.idFromName(userId))
 
     try {
       await workspace.fetch(`https://internal${path}`, {
@@ -589,11 +508,8 @@ export class Conversation {
     }
   }
 
-  private async retrieveBuiltInContext(
-    query: string,
-    metadata: Record<string, unknown>
-  ) {
-    if(!query){
+  private async retrieveBuiltInContext(query: string, metadata: Record<string, unknown>) {
+    if (!query) {
       return ""
     }
 
@@ -608,12 +524,7 @@ export class Conversation {
     }
   }
 
-  private async putStorage(
-    key: string,
-    value: unknown,
-    scope: string,
-    metadata: Record<string, unknown>
-  ) {
+  private async putStorage(key: string, value: unknown, scope: string, metadata: Record<string, unknown>) {
     try {
       await this.state.storage.put(key, value)
     } catch (error) {
@@ -623,7 +534,7 @@ export class Conversation {
 }
 
 function normalizeScopedId(value: string | undefined) {
-  if(typeof value !== "string"){
+  if (typeof value !== "string") {
     return ""
   }
 
@@ -634,31 +545,27 @@ function encodeSse(payload: Record<string, unknown>) {
   return encoder.encode(`data: ${JSON.stringify(payload)}\n\n`)
 }
 
-function appendAssistantTextFromSse(
-  value: string,
-  append: (text: string) => void,
-  flush = false
-) {
+function appendAssistantTextFromSse(value: string, append: (text: string) => void, flush = false) {
   const parts = value.split("\n\n")
   const completeParts = flush ? parts : parts.slice(0, -1)
 
-  completeParts.forEach(part => {
-    for(const line of part.split("\n")){
-      if(!line.startsWith("data: ")) continue
+  completeParts.forEach((part) => {
+    for (const line of part.split("\n")) {
+      if (!line.startsWith("data: ")) continue
 
       const payload = line.slice(6).trim()
 
-      if(!payload || payload === "[DONE]"){
+      if (!payload || payload === "[DONE]") {
         continue
       }
 
-      try{
+      try {
         const parsed = JSON.parse(payload)
 
-        if(typeof parsed.response === "string"){
+        if (typeof parsed.response === "string") {
           append(parsed.response)
         }
-      }catch{}
+      } catch {}
     }
   })
 
